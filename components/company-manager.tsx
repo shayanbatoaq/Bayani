@@ -32,21 +32,23 @@ import {
   type CompanyDraft,
 } from "@/lib/company"
 import { countries } from "@/lib/countries"
+import { readDocument, type ReadProgress } from "@/lib/document-reader"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
 type Extracted = {
   fields: Partial<CompanyDraft> & { vat?: Partial<CompanyDraft["vat"]>; ct?: Partial<CompanyDraft["ct"]> }
-  source: "ai" | "rules"
-  warnings: string[]
-  documents: { type: CompanyDocType; filename: string }[]
+  sources: Record<string, string>
+  issues: { level: "error" | "warning" | "info"; message: string }[]
+  documents: { type: CompanyDocType; filename: string; detected: string; authority?: string }[]
+  ai: "used" | "unavailable" | "failed"
 }
 
 type Step =
   | { kind: "idle" }
   | { kind: "choose" }
   | { kind: "upload" }
-  | { kind: "review"; draft: CompanyDraft; highlighted: string[]; extracted?: Extracted }
+  | { kind: "review"; draft: CompanyDraft; sources: Record<string, string>; extracted?: Extracted }
   | { kind: "edit"; company: Company }
 
 export function CompanyManager() {
@@ -81,7 +83,7 @@ export function CompanyManager() {
     setStep({ kind: "choose" })
   }
 
-  async function save(draft: CompanyDraft, existing?: Company, documents?: Extracted["documents"]) {
+  async function save(draft: CompanyDraft, existing?: Company, documents?: { type: CompanyDocType; filename: string }[]) {
     setSaving(true)
     setError("")
     try {
@@ -175,7 +177,7 @@ export function CompanyManager() {
         {step.kind === "choose" && (
           <ChooseMethod
             onUpload={() => setStep({ kind: "upload" })}
-            onManual={() => setStep({ kind: "review", draft: emptyCompanyDraft(), highlighted: [] })}
+            onManual={() => setStep({ kind: "review", draft: emptyCompanyDraft(), sources: {} })}
             onCancel={companies.length ? () => setStep({ kind: "idle" }) : undefined}
           />
         )}
@@ -184,8 +186,8 @@ export function CompanyManager() {
           <DocumentUpload
             onCancel={() => setStep({ kind: "choose" })}
             onExtracted={(extracted) => {
-              const { draft, highlighted } = mergeExtracted(extracted)
-              setStep({ kind: "review", draft, highlighted, extracted })
+              const { draft, sources } = mergeExtracted(extracted)
+              setStep({ kind: "review", draft, sources, extracted })
             }}
           />
         )}
@@ -195,17 +197,13 @@ export function CompanyManager() {
             <h3 className="mb-1 text-lg font-semibold">
               {step.extracted ? "Review extracted details" : "Enter company details"}
             </h3>
-            {step.extracted?.warnings.map((warning) => (
-              <p key={warning} className="mt-2 text-sm text-amber-800">
-                {warning}
-              </p>
-            ))}
+            {step.extracted && <ExtractionSummary extracted={step.extracted} />}
             <div className="mt-6">
               <CompanyForm
                 initial={step.draft}
-                highlighted={step.highlighted}
+                sources={step.sources}
                 saving={saving}
-                onSave={(draft) => save(draft, undefined, step.extracted?.documents)}
+                onSave={(draft) => save(draft, undefined, step.extracted?.documents.map(({ type, filename }) => ({ type, filename })))}
                 onCancel={() => setStep(companies.length ? { kind: "idle" } : { kind: "choose" })}
               />
             </div>
@@ -231,40 +229,80 @@ export function CompanyManager() {
 
 function mergeExtracted(extracted: Extracted) {
   const base = emptyCompanyDraft()
-  const highlighted: string[] = []
+  const sources: Record<string, string> = {}
   const f = extracted.fields
   const draft: CompanyDraft = { ...base, vat: { ...base.vat }, ct: { ...base.ct } }
-  for (const key of [
-    "name",
-    "legalForm",
-    "authority",
-    "emirate",
-    "licenseNumber",
-    "licenseIssueDate",
-    "businessActivity",
-    "manager",
-  ] as const) {
+  const from = (path: string) => extracted.sources[path] ?? "document"
+  for (const key of ["name", "legalForm", "authority", "emirate", "licenseNumber", "licenseIssueDate", "businessActivity", "manager"] as const) {
     const value = f[key]
     if (typeof value === "string" && value) {
       draft[key] = value
-      highlighted.push(key)
+      sources[key] = from(key)
     }
   }
   if (f.partners?.length) {
     draft.partners = f.partners
-    highlighted.push("partners")
+    sources.partners = from("partners")
   }
   for (const [key, value] of Object.entries(f.vat ?? {}))
     if (value !== undefined && value !== "") {
       ;(draft.vat as Record<string, unknown>)[key] = value
-      highlighted.push(`vat.${key}`)
+      sources[`vat.${key}`] = from(`vat.${key}`)
     }
   for (const [key, value] of Object.entries(f.ct ?? {}))
     if (value !== undefined && value !== "") {
       ;(draft.ct as Record<string, unknown>)[key] = value
-      highlighted.push(`ct.${key}`)
+      sources[`ct.${key}`] = from(`ct.${key}`)
     }
-  return { draft, highlighted }
+  return { draft, sources }
+}
+
+const kindLabel: Record<string, string> = {
+  tradeLicense: "Trade License",
+  moa: "MOA / Articles",
+  vatCertificate: "VAT certificate",
+  ctCertificate: "Corporate tax certificate",
+  incorporation: "Certificate of incorporation",
+  unknown: "Not recognised",
+}
+
+function ExtractionSummary({ extracted }: { extracted: Extracted }) {
+  const order = { error: 0, warning: 1, info: 2 }
+  const issues = [...extracted.issues].sort((a, b) => order[a.level] - order[b.level])
+  return (
+    <div className="mt-4 space-y-4">
+      <ul className="flex flex-wrap gap-2 text-xs">
+        {extracted.documents.map((doc) => (
+          <li key={doc.type} className="rounded-full border bg-secondary px-3 py-1">
+            <span className="font-medium">{doc.filename}</span> · read as {kindLabel[doc.detected === "unknown" ? doc.type : doc.detected]}
+            {doc.authority ? ` · ${doc.authority}` : ""}
+          </li>
+        ))}
+      </ul>
+      {issues.length > 0 ? (
+        <ul className="space-y-2">
+          {issues.map((issue) => (
+            <li
+              key={issue.message}
+              className={cn(
+                "flex items-start gap-2 rounded-md px-3 py-2 text-sm",
+                issue.level === "error" && "bg-red-50 text-red-900",
+                issue.level === "warning" && "bg-amber-50 text-amber-900",
+                issue.level === "info" && "bg-slate-50 text-slate-700"
+              )}
+            >
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              {issue.message}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          <CheckCircle2 className="size-4" /> The documents agree with each other and every field was found.
+        </p>
+      )}
+    </div>
+  )
 }
 
 function ChooseMethod({
@@ -330,6 +368,7 @@ function DocumentUpload({
 }) {
   const [files, setFiles] = useState<Partial<Record<CompanyDocType, File>>>({})
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<ReadProgress | null>(null)
   const [error, setError] = useState("")
   const inputs = useRef<Partial<Record<CompanyDocType, HTMLInputElement | null>>>({})
   const count = Object.values(files).filter(Boolean).length
@@ -338,9 +377,18 @@ function DocumentUpload({
     setBusy(true)
     setError("")
     try {
-      const form = new FormData()
-      for (const [type, file] of Object.entries(files)) if (file) form.append(type, file)
-      const response = await fetch("/api/companies/extract", { method: "POST", body: form })
+      // Documents are read here in the browser (OCR for scanned pages); only the text is sent on.
+      const documents = []
+      for (const [type, file] of Object.entries(files)) {
+        if (!file) continue
+        documents.push({ type, filename: file.name, text: await readDocument(file, setProgress) })
+      }
+      setProgress(null)
+      const response = await fetch("/api/companies/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documents }),
+      })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       onExtracted(data)
@@ -348,6 +396,7 @@ function DocumentUpload({
       setError(cause instanceof Error ? cause.message : "The documents could not be read.")
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -356,7 +405,7 @@ function DocumentUpload({
       <div>
         <h3 className="text-lg font-semibold">Upload company documents</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          PDF or image, up to 15 MB each. Upload what you have; missing details can be typed in next.
+          PDF or image, up to 25 MB each. Upload what you have; missing details can be typed in next.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -412,6 +461,22 @@ function DocumentUpload({
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
           {error}
         </p>
+      )}
+      {busy && (
+        <div role="status" className="space-y-2 rounded-md bg-secondary px-4 py-3 text-sm">
+          <p className="flex items-center gap-2 font-medium">
+            <Loader2 className="size-4 animate-spin" />
+            {progress
+              ? `${progress.file}: page ${progress.page} of ${progress.pages}${progress.ocr ? " (scanned, reading the image)" : ""}`
+              : "Checking the documents..."}
+          </p>
+          {progress && (
+            <div className="h-1.5 overflow-hidden rounded-full bg-white">
+              <div className="h-full bg-emerald-600 transition-all" style={{ width: `${(progress.page / progress.pages) * 100}%` }} />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">Scanned pages take a few seconds each. Documents stay on this device while they are read.</p>
+        </div>
       )}
       <div className="flex flex-wrap gap-3">
         <Button onClick={extract} disabled={!count || busy}>

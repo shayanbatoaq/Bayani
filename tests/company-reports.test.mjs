@@ -9,7 +9,7 @@ const { resolveSchedule, ledgerHeads } = await jiti.import("../lib/ledger-heads.
 const { vatPeriods, financialPeriod, ctDueDate, companyDraftSchema, emptyCompanyDraft } = await jiti.import("../lib/company.ts")
 const { vatSchedule, ctSchedule } = await jiti.import("../lib/tax.ts")
 const { buildReport } = await jiti.import("../lib/report-model.ts")
-const { extractWithRules, normaliseDate } = await jiti.import("../lib/document-rules.ts")
+const { extractCompanyDetails, normaliseDate } = await jiti.import("../lib/document-rules.ts")
 
 const record = (year, entries, openingEquity = null) => {
   const input = {
@@ -194,22 +194,97 @@ test("report model: comparatives, dynamic notes, no audit wording", () => {
   assert.equal(model.cashFlow.at(-1).current, 139599.88)
 })
 
-test("rule-based extraction reads text-based UAE documents", () => {
-  const fields = extractWithRules({
-    tradeLicense: "Government of Sharjah\nSharjah Economic Development Department\nCommercial License\nLicense No. 2323551\nTrade Name: TARANTEEN LLC\nLegal Type: Limited Liability Company\nIssue Date: 14/04/2023\nActivities: General Trading, Non Specialized wholesale trade\nManager: Hamidreza Esmaeel Damroodi\nPartners: Hamidreza Esmaeel Damroodi Iran 100%",
-    vatCertificate: "Federal Tax Authority\nTax Registration Number (TRN): 104123456700003\nEffective Registration Date: 01/05/2023\nFirst VAT Return Period: 01/05/2023 - 31/07/2023\nTax Period: Quarterly",
-    ctCertificate: "Corporate Tax Registration Certificate\nTax Registration Number: 104123456700099\nFirst Tax Period: 01/01/2024 - 31/12/2024",
-  })
-  assert.equal(fields.name, "TARANTEEN LLC")
-  assert.equal(fields.emirate, "Sharjah")
-  assert.equal(fields.licenseNumber, "2323551")
-  assert.equal(fields.licenseIssueDate, "2023-04-14")
-  assert.equal(fields.manager, "Hamidreza Esmaeel Damroodi")
-  assert.deepEqual(fields.partners, [{ name: "Hamidreza Esmaeel Damroodi", nationality: "Iran", sharePercent: 100, shareValue: 0 }])
-  assert.deepEqual(fields.vat, { trn: "104123456700003", effectiveDate: "2023-05-01", frequency: "quarterly", cycleStartMonth: 5 })
-  assert.deepEqual(fields.ct, { trn: "104123456700099", firstPeriodStart: "2024-01-01", yearEndMonth: 12 })
+test("document rules: real UAE layouts with invented data", () => {
+  // Dubai DET licence: members table, partners table, capital (layout of a real DET licence; data invented).
+  const det = [
+    "Commercial License",
+    "License No.",
+    "1234567",
+    "Company Name   SAMPLE GENERAL TRADING CO. L.L.C",
+    "Legal Type   Limited Liability Company(LLC)",
+    "Expiry Date   01/02/2027   Issue Date   02/02/2024",
+    "License Members /",
+    "Manager /   India /   1111111",
+    "RAVI KUMAR",
+    "SHARMA",
+    "License Activities",
+    "General Trading",
+    "Foodstuff Trading",
+    "Address",
+    "Send your trade license number to 6969 to receive payment voucher.",
+    "\f",
+    "License Partners",
+    "60.0000000%   1111111   India   Ravi Kumar Sharma",
+    "40.0000000%   2222222   Egypt   Sara Adel Mahmoud",
+    "Capital Details",
+    "Nominated   200,000.00",
+    "this is a certified e-document issued by the department of Economy and Tourism",
+  ].join("\n")
+  // JAFZA-style MOA block and FTA certificates.
+  const moa = [
+    "MEMORANDUM AND ARTICLES OF ASSOCIATION",
+    "The name of the free zone company is 'SAMPLE GENERAL TRADING CO. L.L.C (the Company).",
+    "2.1 The capital of the Company is [ 200 ] Shares with a value of AED [1,000.00] each.",
+    "(a)   Name of Shareholder: [RAVI KUMAR SHARMA]",
+    "Nationality: [/ndia]",
+    "Number of Shares: [120]",
+    "Percentage: [ 60 ]%",
+    "(b)   Name of Shareholder: [SARA ADEL MAHMOUD]",
+    "Nationality: [Egypt]",
+    "Number of Shares: [80]",
+    "Percentage: [ 40 1%",
+  ].join("\n")
+  const vat = [
+    "Certificate of Registration for Value Added Tax in the United Arab Emirates",
+    "Tax Registration Number   100000000000003",
+    "Legal Name of Entity (English)   SAMPLE GENERAL TRADING CO. L.L.C",
+    "Effective Registration Date   01/03/2024",
+    "First VAT Return Period   01/03/2024 - 31/05/2024",
+    "Start and end dates of Tax periods   1st Mar to 31st May, 1st June to 31st Aug, 1st Sep to 30th Nov, 1st Dec to 28th Feb",
+  ].join("\n")
+  const ct = [
+    "Certificate of Registration for Corporate Tax in the United Arab Emirates",
+    "Tax Registration Number   100000000000099",
+    "Legal Name of Person/Entity (English)",
+    "SAMPLE GENERAL TRADING CO. L.L.C",
+    "1   January - December   01/01/2025   31/12/2025   30/09/2026   -",
+  ].join("\n")
+  const r = extractCompanyDetails(
+    [
+      { type: "tradeLicense", text: det },
+      { type: "moa", text: moa },
+      { type: "vatCertificate", text: vat },
+      { type: "ctCertificate", text: ct },
+    ],
+    "2025-01-01"
+  )
+  const f = r.fields
+  assert.equal(f.name, "SAMPLE GENERAL TRADING CO. L.L.C")
+  assert.equal(f.authority, "Dubai Department of Economy and Tourism (DET)")
+  assert.equal(f.emirate, "Dubai")
+  assert.equal(f.legalForm, "Limited Liability Company (LLC)")
+  assert.equal(f.licenseNumber, "1234567") // not "to" from the SMS footer
+  assert.equal(f.licenseIssueDate, "2024-02-02")
+  assert.equal(f.businessActivity, "General Trading, Foodstuff Trading")
+  assert.equal(f.manager, "Ravi Kumar Sharma")
+  assert.deepEqual(f.partners, [
+    { name: "Ravi Kumar Sharma", nationality: "India", sharePercent: 60, shareValue: 120000 },
+    { name: "Sara Adel Mahmoud", nationality: "Egypt", sharePercent: 40, shareValue: 80000 },
+  ])
+  assert.deepEqual(f.vat, { trn: "100000000000003", effectiveDate: "2024-03-01", frequency: "quarterly", cycleStartMonth: 3 })
+  assert.deepEqual(f.ct, { trn: "100000000000099", firstPeriodStart: "2025-01-01", yearEndMonth: 12 })
+  assert.equal(r.sources.partners, "MOA / Articles")
+  assert.equal(r.issues.filter((i) => i.level === "error").length, 0)
   assert.equal(normaliseDate("14th April 2023"), "2023-04-14")
+  assert.equal(normaliseDate("22 DAY OF October 2006"), "2006-10-22")
   assert.equal(normaliseDate("31/02/2024"), "")
+
+  // Conflicts are reported, not hidden.
+  const mismatch = extractCompanyDetails([
+    { type: "tradeLicense", text: det },
+    { type: "vatCertificate", text: vat.replace("SAMPLE GENERAL TRADING CO. L.L.C", "OTHER COMPANY LLC") },
+  ])
+  assert.match(mismatch.issues.map((i) => i.message).join(" "), /Company name differs/)
 })
 
 test("VAT periods straddling a year with no data are flagged partial", () => {
@@ -260,4 +335,23 @@ test("uploads: plain positive files are signed and balanced; signed exports are 
   ])
   assert.equal(signed.convention, "signed")
   assert.equal(signed.rows.find((r) => r.ledgerName === "Revenue").amount, -50000)
+})
+
+test("scanned MOA: one OCR digit slip is repaired only when the totals prove it", async () => {
+  const moa = (pcts, shares) =>
+    [
+      "[OCR]",
+      "MEMORANDUM AND ARTICLES OF ASSOCIATION",
+      "2.1 The capital of the Company is [ 8 ] Shares with a value of AED [100,000.00] each.",
+      ...pcts.flatMap((p, i) => [`Name of Shareholder: [PERSON ${"ABCD"[i]} SAMPLE]`, "Nationality: [India]", `Number of Shares: [${shares[i]}]`, `Percentage: [ ${p} ]%`]),
+    ].join("\n")
+  const fixed = extractCompanyDetails([{ type: "moa", text: moa([25, 25, 29, 25], [2, 2, 2, 2]) }]).fields.partners
+  assert.deepEqual(fixed.map((p) => p.sharePercent), [25, 25, 25, 25])
+  const shares = extractCompanyDetails([{ type: "moa", text: moa([25, 25, 25, 25], [3, 2, 2, 7]) }])
+  assert.deepEqual(shares.fields.partners.map((p) => p.shareValue), [300000, 200000, 200000, 100000])
+  assert.match(shares.issues.map((i) => i.message).join(" "), /corrected to 1/)
+  // Ambiguous: two different swaps would fit, so nothing is changed and the total is flagged.
+  const unsure = extractCompanyDetails([{ type: "moa", text: moa([29, 29, 25, 25], [2, 2, 2, 2]) }])
+  assert.deepEqual(unsure.fields.partners.map((p) => p.sharePercent), [29, 29, 25, 25])
+  assert.match(unsure.issues.map((i) => i.message).join(" "), /add up to 108%/)
 })

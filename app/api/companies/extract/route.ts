@@ -1,41 +1,34 @@
-import { companyDocTypes, type CompanyDocType } from "@/lib/company"
-import { extractCompany, type UploadedDocument } from "@/lib/document-extract"
-import { FinancialError, financialErrorResponse, financialOwner } from "@/lib/financial-store"
-import { assertSameOrigin } from "@/lib/request-guard"
+import { z } from "zod"
+import { extractCompany } from "@/lib/document-extract"
+import { financialErrorResponse, financialOwner } from "@/lib/financial-store"
+import { assertSameOrigin, readJson } from "@/lib/request-guard"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
 
-const allowed = ["application/pdf", "image/png", "image/jpeg", "image/webp"]
+/** Documents are read in the browser (text layer or OCR); only their text is sent here. */
+const bodySchema = z.object({
+  documents: z
+    .array(
+      z.object({
+        type: z.enum(["tradeLicense", "moa", "vatCertificate", "ctCertificate"]),
+        filename: z.string().max(255).optional(),
+        text: z.string().max(600_000),
+      })
+    )
+    .min(1, "Upload at least one document.")
+    .max(8),
+})
 
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request)
     await financialOwner()
-    const form = await request.formData()
-    const documents: UploadedDocument[] = []
-    for (const { key } of companyDocTypes) {
-      const file = form.get(key)
-      if (!(file instanceof File) || !file.size) continue
-      if (file.size > 15 * 1024 * 1024)
-        throw new FinancialError(`${file.name} is larger than 15 MB.`, 413)
-      const mime = file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "")
-      if (!allowed.includes(mime))
-        throw new FinancialError(`${file.name}: upload a PDF, PNG, JPG or WEBP file.`)
-      documents.push({
-        type: key as CompanyDocType,
-        filename: file.name,
-        mime,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      })
-    }
-    if (!documents.length) throw new FinancialError("Upload at least one document.")
-    const result = await extractCompany(documents)
+    const parsed = bodySchema.safeParse(await readJson(request, 3_000_000))
+    if (!parsed.success) return Response.json({ error: parsed.error.issues[0].message }, { status: 400 })
+    const report = await extractCompany(parsed.data.documents)
     return Response.json(
-      {
-        ...result,
-        documents: documents.map(({ type, filename }) => ({ type, filename })),
-      },
+      { ...report, documents: report.documents.map(({ type, filename, detected, authority }) => ({ type, filename: filename ?? "", detected, authority })) },
       { headers: { "Cache-Control": "private, no-store" } }
     )
   } catch (error) {

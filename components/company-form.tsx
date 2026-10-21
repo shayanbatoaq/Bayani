@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 export function CompanyForm({
   initial,
   highlighted = [],
+  sources = {},
   saving,
   onSave,
   onCancel,
@@ -32,6 +33,8 @@ export function CompanyForm({
   initial: CompanyDraft
   /** Field paths filled from uploaded documents, shown with a marker for review. */
   highlighted?: string[]
+  /** Field path → document it was read from, shown on the field. */
+  sources?: Record<string, string>
   saving: boolean
   onSave: (draft: CompanyDraft) => void
   onCancel?: () => void
@@ -52,7 +55,7 @@ export function CompanyForm({
     )
   const totalPercent = draft.partners.reduce((sum, partner) => sum + (partner.sharePercent || 0), 0)
   const totalValue = draft.partners.reduce((sum, partner) => sum + (partner.shareValue || 0), 0)
-  const mark = (path: string) => highlighted.includes(path)
+  const mark = (path: string) => sources[path] ?? (highlighted.includes(path) ? "document" : "")
 
   function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -76,10 +79,10 @@ export function CompanyForm({
 
   return (
     <form onSubmit={submit} className="space-y-8" noValidate>
-      {highlighted.length > 0 && (
+      {(highlighted.length > 0 || Object.keys(sources).length > 0) && (
         <p className="flex items-start gap-2 border-l-2 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
-          Fields marked “From document” were read automatically. Check each one against the original
+          Fields marked “From …” were read from your documents. Check each one against the original
           before saving.
         </p>
       )}
@@ -151,7 +154,7 @@ export function CompanyForm({
 
       <Section title="Partners / owners" columns={1}>
         <div id="field-partners" className="space-y-3">
-          {mark("partners") && <FromDoc />}
+          {mark("partners") && <FromDoc source={mark("partners")} />}
           <div className="hidden grid-cols-[minmax(0,1fr)_10rem_7rem_10rem_2.5rem] gap-3 text-xs font-medium text-muted-foreground md:grid">
             <span>Name</span>
             <span>Nationality</span>
@@ -373,7 +376,7 @@ function Field({
   label: string
   error?: string
   hint?: string
-  fromDoc?: boolean
+  fromDoc?: string
   wide?: boolean
   children: React.ReactNode
 }) {
@@ -381,7 +384,7 @@ function Field({
     <div className={cn("min-w-0 space-y-2", wide && "sm:col-span-2")}>
       <div className="flex items-center justify-between gap-2">
         <Label htmlFor={`field-${id}`}>{label}</Label>
-        {fromDoc && <FromDoc />}
+        {fromDoc && <FromDoc source={fromDoc} />}
       </div>
       <div className={cn(error && "[&_input]:border-destructive [&_textarea]:border-destructive")}>{children}</div>
       {error ? (
@@ -393,10 +396,10 @@ function Field({
   )
 }
 
-function FromDoc() {
+function FromDoc({ source }: { source: string }) {
   return (
     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
-      From document
+      From {source}
     </span>
   )
 }

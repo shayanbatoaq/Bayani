@@ -1,25 +1,19 @@
 import "server-only"
+import { emirateFromAuthority, type CompanyDocType } from "./company"
 import {
-  emirateFromAuthority,
-  type CompanyDocType,
-} from "./company"
-import { extractWithRules, normaliseDate, num, trnOf } from "./document-rules"
+  extractCompanyDetails,
+  normaliseDate,
+  normaliseNationality,
+  num,
+  personCase,
+  prepareLines,
+  trnOf,
+  type DocInput,
+  type ExtractedCompany,
+  type ExtractionReport,
+} from "./document-rules"
 
-export type UploadedDocument = {
-  type: CompanyDocType
-  filename: string
-  mime: string
-  bytes: Uint8Array
-}
-
-export type { ExtractedCompany } from "./document-rules"
-import type { ExtractedCompany } from "./document-rules"
-
-export type ExtractionResult = {
-  fields: ExtractedCompany
-  source: "ai" | "rules"
-  warnings: string[]
-}
+export type { ExtractedCompany, ExtractionReport } from "./document-rules"
 
 const labels: Record<CompanyDocType, string> = {
   tradeLicense: "Trade License",
@@ -28,43 +22,14 @@ const labels: Record<CompanyDocType, string> = {
   ctCertificate: "Corporate Tax Registration Certificate",
 }
 
-export async function pdfText(bytes: Uint8Array) {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
-  const task = pdfjs.getDocument({
-    data: bytes.slice(),
-    useSystemFonts: true,
-  })
-  try {
-    const pdf = await task.promise
-    let text = ""
-    for (let n = 1; n <= Math.min(pdf.numPages, 30); n++) {
-      const page = await pdf.getPage(n)
-      const content = await page.getTextContent()
-      for (const item of content.items)
-        if ("str" in item) text += item.str + (item.hasEOL ? "\n" : " ")
-      text += "\n"
-      page.cleanup()
-    }
-    return text.replace(/[ \t]+/g, " ").trim()
-  } finally {
-    await task.destroy()
-  }
-}
-
-/* ---------------- AI extraction ---------------- */
-
-const instructions = `You extract company data from UAE corporate documents (trade license, MOA/articles, VAT and corporate tax registration certificates).
-Return ONLY a JSON object with these keys (use "" or [] when not found, never invent values):
-{
- "name": string, "legalForm": string, "authority": string (issuing licensing authority, e.g. "Dubai Economy and Tourism"), "emirate": string,
- "licenseNumber": string, "licenseIssueDate": "YYYY-MM-DD" (first issue / registration date if shown, else issue date),
- "businessActivity": string (all licensed activities, comma separated),
- "partners": [{"name": string, "nationality": string, "sharePercent": number, "shareValue": number (AED value of shares, 0 if unknown)}],
- "manager": string,
- "vat": {"trn": string (15 digits), "effectiveDate": "YYYY-MM-DD", "frequency": "quarterly"|"monthly", "firstPeriodStart": "YYYY-MM-DD", "firstPeriodEnd": "YYYY-MM-DD"},
- "ct": {"trn": string (15 digits), "firstPeriodStart": "YYYY-MM-DD", "firstPeriodEnd": "YYYY-MM-DD"}
-}
-Dates on UAE documents are day/month/year. Prefer the MOA for partners, shares and manager; prefer the trade license for activities and authority.`
+const instructions = `You extract company data from UAE corporate documents (trade licence, MOA / articles, FTA VAT and corporate tax certificates). The text was read from the documents; scanned pages were read by OCR and may contain errors.
+Return ONLY a JSON object with these keys (use "" or [] when a value is not in the documents; never guess):
+{"name": string, "legalForm": string, "authority": string (issuing licensing authority), "licenseNumber": string, "licenseIssueDate": "YYYY-MM-DD",
+ "businessActivity": string (licensed activities, comma separated), "manager": string,
+ "partners": [{"name": string, "nationality": string, "sharePercent": number, "shareValue": number}],
+ "vat": {"trn": string, "effectiveDate": "YYYY-MM-DD", "frequency": "quarterly"|"monthly", "firstPeriodEnd": "YYYY-MM-DD"},
+ "ct": {"trn": string, "firstPeriodStart": "YYYY-MM-DD", "firstPeriodEnd": "YYYY-MM-DD"}}
+Dates in UAE documents are day/month/year. Prefer the MOA for shareholders and share values, and the licence for activities and manager.`
 
 function provider(): { endpoint: string; key: string; model: string; extra: Record<string, string> } | null {
   const openRouterKey = process.env.OPENROUTER_API_KEY
@@ -75,10 +40,7 @@ function provider(): { endpoint: string; key: string; model: string; extra: Reco
         endpoint: "https://openrouter.ai/api/v1/chat/completions",
         key: openRouterKey,
         model: process.env.OPENROUTER_EXTRACT_MODEL || process.env.OPENROUTER_MODEL || "openai/gpt-4.1-mini",
-        extra: {
-          "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-          "X-Title": "FinScope AI",
-        },
+        extra: { "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000", "X-Title": "FinScope AI" },
       }
     : {
         endpoint: "https://api.openai.com/v1/chat/completions",
@@ -88,26 +50,12 @@ function provider(): { endpoint: string; key: string; model: string; extra: Reco
       }
 }
 
-async function extractWithAi(
-  documents: UploadedDocument[],
-  texts: Partial<Record<CompanyDocType, string>>
-): Promise<ExtractedCompany | null> {
+async function readWithAi(docs: DocInput[]): Promise<ExtractedCompany | null> {
   const ai = provider()
   if (!ai) return null
-  const content: unknown[] = [{ type: "text", text: "Extract the company details from these documents." }]
-  for (const doc of documents) {
-    const text = texts[doc.type] ?? ""
-    const b64 = Buffer.from(doc.bytes).toString("base64")
-    if (text.length > 150) {
-      content.push({ type: "text", text: `--- ${labels[doc.type]} (${doc.filename}) ---\n${text.slice(0, 40_000)}` })
-    } else if (doc.mime === "application/pdf") {
-      content.push({ type: "text", text: `--- ${labels[doc.type]} (scanned PDF attached) ---` })
-      content.push({ type: "file", file: { filename: doc.filename, file_data: `data:application/pdf;base64,${b64}` } })
-    } else {
-      content.push({ type: "text", text: `--- ${labels[doc.type]} (image attached) ---` })
-      content.push({ type: "image_url", image_url: { url: `data:${doc.mime};base64,${b64}` } })
-    }
-  }
+  const content = docs
+    .map((doc) => `--- ${labels[doc.type]}${doc.filename ? ` (${doc.filename})` : ""} ---\n${prepareLines(doc.text).join("\n").slice(0, 30_000)}`)
+    .join("\n\n")
   const response = await fetch(ai.endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${ai.key}`, "Content-Type": "application/json", ...ai.extra },
@@ -123,76 +71,79 @@ async function extractWithAi(
     signal: AbortSignal.timeout(90_000),
   })
   if (!response.ok) throw new Error(`AI extraction failed (${response.status})`)
-  const json = await response.json()
-  const raw = JSON.parse(json?.choices?.[0]?.message?.content ?? "{}")
-  return normaliseAi(raw)
-}
-
-function normaliseAi(raw: Record<string, unknown>): ExtractedCompany {
+  const raw = JSON.parse((await response.json())?.choices?.[0]?.message?.content ?? "{}")
   const s = (v: unknown) => (typeof v === "string" ? v.trim() : "")
   const out: ExtractedCompany = {}
-  for (const key of ["name", "legalForm", "authority", "emirate", "licenseNumber", "businessActivity", "manager"] as const) {
-    const value = s(raw[key])
-    if (value) out[key] = value
-  }
-  const issue = normaliseDate(raw.licenseIssueDate)
-  if (issue) out.licenseIssueDate = issue
-  if (!out.emirate && out.authority) out.emirate = emirateFromAuthority(out.authority)
-  if (Array.isArray(raw.partners)) {
-    const partners = raw.partners
+  for (const key of ["name", "legalForm", "authority", "licenseNumber", "businessActivity", "manager"] as const) if (s(raw[key])) out[key] = s(raw[key])
+  if (normaliseDate(raw.licenseIssueDate)) out.licenseIssueDate = normaliseDate(raw.licenseIssueDate)
+  if (out.authority) out.emirate = emirateFromAuthority(out.authority)
+  if (Array.isArray(raw.partners))
+    out.partners = raw.partners
       .map((p: Record<string, unknown>) => ({
-        name: s(p?.name),
-        nationality: s(p?.nationality),
+        name: personCase(s(p?.name)),
+        nationality: s(p?.nationality) ? normaliseNationality(s(p.nationality)) : "",
         sharePercent: num(p?.sharePercent),
         shareValue: num(p?.shareValue),
       }))
-      .filter((p) => p.name)
-    if (partners.length) out.partners = partners
-  }
+      .filter((p: { name: string }) => p.name)
   const vat = (raw.vat ?? {}) as Record<string, unknown>
   out.vat = {}
   if (trnOf(vat.trn)) out.vat.trn = trnOf(vat.trn)
-  const eff = normaliseDate(vat.effectiveDate) || normaliseDate(vat.firstPeriodStart)
-  if (eff) out.vat.effectiveDate = eff
+  if (normaliseDate(vat.effectiveDate)) out.vat.effectiveDate = normaliseDate(vat.effectiveDate)
   if (vat.frequency === "monthly" || vat.frequency === "quarterly") out.vat.frequency = vat.frequency
-  const firstEnd = normaliseDate(vat.firstPeriodEnd)
-  if (firstEnd) {
-    const length = out.vat.frequency === "monthly" ? 1 : 3
-    const endMonth = +firstEnd.slice(5, 7)
-    out.vat.cycleStartMonth = ((((endMonth - length) % 12) + 12) % 12) + 1
-  }
   const ct = (raw.ct ?? {}) as Record<string, unknown>
   out.ct = {}
   if (trnOf(ct.trn)) out.ct.trn = trnOf(ct.trn)
-  const ctStart = normaliseDate(ct.firstPeriodStart)
-  if (ctStart) out.ct.firstPeriodStart = ctStart
-  const ctEnd = normaliseDate(ct.firstPeriodEnd)
-  if (ctEnd) out.ct.yearEndMonth = +ctEnd.slice(5, 7)
+  if (normaliseDate(ct.firstPeriodStart)) out.ct.firstPeriodStart = normaliseDate(ct.firstPeriodStart)
+  if (normaliseDate(ct.firstPeriodEnd)) out.ct.yearEndMonth = +normaliseDate(ct.firstPeriodEnd).slice(5, 7)
   return out
 }
 
-export async function extractCompany(documents: UploadedDocument[]): Promise<ExtractionResult> {
-  const warnings: string[] = []
-  const texts: Partial<Record<CompanyDocType, string>> = {}
-  for (const doc of documents) {
-    if (doc.mime !== "application/pdf") continue
-    try {
-      texts[doc.type] = await pdfText(doc.bytes)
-    } catch {
-      warnings.push(`${labels[doc.type]}: the PDF could not be read.`)
+const same = (a: unknown, b: unknown) =>
+  String(a ?? "").toLowerCase().replace(/[^a-z0-9]/g, "") === String(b ?? "").toLowerCase().replace(/[^a-z0-9]/g, "")
+
+/**
+ * Document rules first. With an AI key configured, a second reading fills
+ * fields the rules did not find and reports any field where the two disagree;
+ * it never silently overwrites a value read by the rules.
+ */
+export async function extractCompany(docs: DocInput[]): Promise<ExtractionReport & { ai: "used" | "unavailable" | "failed" }> {
+  const report = extractCompanyDetails(docs)
+  let ai: ExtractedCompany | null = null
+  let status: "used" | "unavailable" | "failed" = "unavailable"
+  try {
+    ai = await readWithAi(docs)
+    if (ai) status = "used"
+  } catch (error) {
+    console.error("AI document reading failed", error)
+    status = "failed"
+  }
+  if (!ai) return { ...report, ai: status }
+  const f = report.fields
+  for (const key of ["name", "legalForm", "authority", "emirate", "licenseNumber", "licenseIssueDate", "businessActivity", "manager"] as const) {
+    if (!ai[key]) continue
+    if (!f[key]) {
+      f[key] = ai[key]
+      report.sources[key] = "AI reading"
+    } else if (!same(f[key], ai[key]) && key !== "businessActivity")
+      report.issues.push({ level: "warning", message: `${key === "licenseIssueDate" ? "License issue date" : key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}: the documents read as “${f[key]}”, the AI reading gives “${ai[key]}”. Check which is right.` })
+  }
+  if (!f.partners?.length && ai.partners?.length) {
+    f.partners = ai.partners
+    report.sources.partners = "AI reading"
+  }
+  for (const group of ["vat", "ct"] as const) {
+    const extra = ai[group] as Record<string, unknown> | undefined
+    if (!extra) continue
+    const mine = (f[group] ??= {}) as Record<string, unknown>
+    for (const [key, value] of Object.entries(extra)) {
+      if (value === undefined || value === "") continue
+      if (mine[key] === undefined) {
+        mine[key] = value
+        report.sources[`${group}.${key}`] = "AI reading"
+      } else if (!same(mine[key], value))
+        report.issues.push({ level: "warning", message: `${group.toUpperCase()} ${key}: documents read “${mine[key]}”, AI reading “${value}”.` })
     }
   }
-  try {
-    const ai = await extractWithAi(documents, texts)
-    if (ai) return { fields: ai, source: "ai", warnings }
-  } catch (error) {
-    console.error("AI document extraction failed", error)
-    warnings.push("Automatic AI extraction was unavailable; text rules were used instead.")
-  }
-  const unreadable = documents.filter((doc) => (texts[doc.type] ?? "").length < 40)
-  for (const doc of unreadable)
-    warnings.push(
-      `${labels[doc.type]}: no readable text (scanned or image). Configure an AI key for scanned documents, or enter these details manually.`
-    )
-  return { fields: extractWithRules(texts), source: "rules", warnings }
+  return { ...report, ai: status }
 }
