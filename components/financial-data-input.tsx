@@ -299,7 +299,7 @@ export function FinancialDataInput() {
                   )}
                 </summary>
                 <p className="my-3 text-sm text-muted-foreground">
-                  Needed for the statement of changes in equity. Credit balances as positive.
+                  Needed for the statement of changes in equity. Enter amounts as positive numbers, and an accumulated loss as negative.
                   {!companyRecords.some((r) => r.year === year - 1) && " There is no saved prior year, so enter these or take them from this trial balance."}
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

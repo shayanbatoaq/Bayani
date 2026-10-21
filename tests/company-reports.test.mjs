@@ -221,3 +221,43 @@ test("VAT periods straddling a year with no data are flagged partial", () => {
   assert.equal(rows.at(-1).source, "Partial data")
   assert.equal(rows[1].source, "Estimated")
 })
+
+test("plain amounts are signed by the nature of each head", async () => {
+  const { toSigned, toPlain, naturalSide, choiceLabel } = await jiti.import("../lib/ledger-heads.ts")
+  assert.equal(toSigned("Revenue", 1000, "sales"), -1000)
+  assert.equal(toSigned("Rent Expense", 500, "rent"), 500)
+  assert.equal(toSigned("Allowance for Depreciation", 375, "ppe"), -375)
+  assert.equal(toSigned("Bank", -200, "bank"), -200) // overdrawn: entered as negative
+  assert.equal(toSigned("VAT Control", 300, "taxPayable", [], -1), -300)
+  assert.equal(choiceLabel("VAT Control", -300), "We owe the FTA")
+  assert.equal(choiceLabel("Current Account", 50), "Owner owes the company")
+  assert.equal(toPlain("Accounts Payable", -900, "payables"), 900)
+  // Custom heads take their side from the report line they are mapped to.
+  assert.equal(naturalSide("Staff accommodation", "rent", [{ name: "Staff accommodation", scheduleKey: "rent" }]), 1)
+  assert.equal(naturalSide("Customer deposits", "customerAdvances", [{ name: "Customer deposits", scheduleKey: "customerAdvances" }]), -1)
+})
+
+test("uploads: plain positive files are signed and balanced; signed exports are kept", async () => {
+  const { interpretImport } = await jiti.import("../lib/ledger-heads.ts")
+  const plain = interpretImport([
+    { ledgerName: "Share Capital", amount: 100000 },
+    { ledgerName: "Revenue", amount: 50000 },
+    { ledgerName: "Rent Expense", amount: 20000 },
+    { ledgerName: "Bank", amount: 132000 },
+    { ledgerName: "VAT Control", amount: 2000 }, // either way: must be "We owe the FTA" to balance
+  ])
+  assert.equal(plain.convention, "plain")
+  assert.equal(plain.rows.reduce((t, r) => t + r.amount, 0), 0)
+  assert.equal(plain.rows.find((r) => r.ledgerName === "VAT Control").amount, -2000)
+  assert.equal(plain.rows.find((r) => r.ledgerName === "VAT Control").scheduleKey !== "", true)
+  assert.deepEqual(plain.resolved, ["VAT Control"])
+
+  const signed = interpretImport([
+    { ledgerName: "Share Capital", amount: -100000 },
+    { ledgerName: "Revenue", amount: -50000 },
+    { ledgerName: "Rent Expense", amount: 20000 },
+    { ledgerName: "Bank", amount: 130000 },
+  ])
+  assert.equal(signed.convention, "signed")
+  assert.equal(signed.rows.find((r) => r.ledgerName === "Revenue").amount, -50000)
+})

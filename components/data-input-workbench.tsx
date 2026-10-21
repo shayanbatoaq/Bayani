@@ -35,7 +35,17 @@ import {
   readTrialBalance,
   type ImportSheet,
 } from "@/lib/import-trial-balance"
-import { ledgerHeads, resolveSchedule, type CustomHead } from "@/lib/ledger-heads"
+import {
+  choiceLabel,
+  choicesFor,
+  interpretImport,
+  ledgerHeads,
+  resolveSchedule,
+  toPlain,
+  toSigned,
+  type CustomHead,
+  type Side,
+} from "@/lib/ledger-heads"
 import { createLedgerRow, formatAmount, parseAmount, type LedgerRow } from "@/lib/trial-balance"
 import { cn } from "@/lib/utils"
 
@@ -129,15 +139,15 @@ export function DataInputWorkbench({
   // manual entry
   const [head, setHead] = useState("")
   const [amount, setAmount] = useState("")
-  const [side, setSide] = useState<"Dr" | "Cr">("Dr")
+  const [choice, setChoice] = useState<Side | 0>(0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [newHead, setNewHead] = useState({ name: "", scheduleKey: "" })
   const [savingHead, setSavingHead] = useState(false)
 
   const parsedAmount = parseAmount(amount)
-  const debit = rows.reduce((sum, row) => sum + (row.amount > 0 ? Math.round(row.amount * 100) : 0), 0) / 100
-  const credit = rows.reduce((sum, row) => sum + (row.amount < 0 ? Math.round(-row.amount * 100) : 0), 0) / 100
-  const difference = Math.round((debit - credit) * 100) / 100
+  // Signed amounts net to zero when the figures balance.
+  const difference = rows.reduce((sum, row) => sum + Math.round(row.amount * 100), 0) / 100
+  const headChoices = head && head !== NEW_HEAD ? choicesFor(head) : null
   const unmapped = rows.filter((row) => !row.scheduleKey).length
   const filtered = onlyUnmapped ? rows.filter((row) => !row.scheduleKey) : rows
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -161,11 +171,15 @@ export function DataInputWorkbench({
     const parsed = parseImportSheet(sheet)
     // The template lists every head; blank or zero amounts are not balances.
     const entries = parsed.entries.filter((entry) => Math.round(entry.amount * 100) !== 0)
-    const imported = entries.map(withSchedule)
+    const interpreted = interpretImport(entries, customHeads)
+    const imported = interpreted.rows.map((entry) => ({ ...createLedgerRow(entry), scheduleKey: entry.scheduleKey }))
     onRowsChange(importMode === "append" ? [...rows, ...imported] : imported)
     const zero = parsed.entries.length - entries.length
+    const resolved = interpreted.rows
+      .filter((row) => interpreted.resolved.includes(row.ledgerName))
+      .map((row) => `${row.ledgerName}: “${choiceLabel(row.ledgerName, row.amount)}”`)
     setNotice(
-      `${imported.length} balances imported from ${filename}.${zero ? ` ${zero} zero balances ignored.` : ""}${parsed.skipped ? ` ${parsed.skipped} rows without an amount skipped.` : ""}${parsed.totalsSkipped ? ` ${parsed.totalsSkipped} total rows excluded.` : ""}`
+      `${imported.length} balances imported from ${filename}.${zero + parsed.skipped ? ` ${zero + parsed.skipped} heads left blank were ignored.` : ""}${resolved.length ? ` Set so your figures balance: ${resolved.join(", ")}. Change it under Type if that is wrong.` : ""}`
     )
     setSheets([])
     setError("")
@@ -198,7 +212,9 @@ export function DataInputWorkbench({
   function addManual(event: React.FormEvent) {
     event.preventDefault()
     if (!head || head === NEW_HEAD || parsedAmount === null || parsedAmount === 0) return
-    const signed = Math.abs(parsedAmount) * (side === "Dr" ? 1 : -1)
+    if (headChoices && !choice) return
+    const usualKey = resolveSchedule(head, 1, customHeads)
+    const signed = toSigned(head, parsedAmount, usualKey, customHeads, choice || undefined)
     if (editingId) {
       onRowsChange(
         rows.map((row) =>
@@ -224,6 +240,7 @@ export function DataInputWorkbench({
     setEditingId(null)
     setAmount("")
     setHead("")
+    setChoice(0)
   }
 
   async function saveNewHead() {
@@ -246,8 +263,8 @@ export function DataInputWorkbench({
     setMode("manual")
     setEditingId(row.id)
     setHead(row.ledgerName)
-    setAmount(String(Math.abs(row.amount)))
-    setSide(row.amount < 0 ? "Cr" : "Dr")
+    setAmount(String(toPlain(row.ledgerName, row.amount, row.scheduleKey ?? "", customHeads)))
+    setChoice(choicesFor(row.ledgerName) ? (Math.sign(row.amount) as Side) : 0)
     requestAnimationFrame(() => amountInput.current?.scrollIntoView({ behavior: "smooth", block: "center" }))
   }
 
@@ -295,7 +312,8 @@ export function DataInputWorkbench({
         <section aria-label="Upload trial balance template" className="space-y-4 rounded-xl border bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Enter debit balances as positive and credit balances as negative in the Amount column.
+              Enter every amount as a positive number and leave heads you don&apos;t use blank. FinScope
+              works out how each one is reported.
             </p>
             <Button asChild variant="outline" size="sm">
               <a href="/templates/trial-balance-template.xlsx" download="Trial Balance Template.xlsx">
@@ -387,14 +405,17 @@ export function DataInputWorkbench({
 
       {mode === "manual" && (
         <section aria-label="Manual entry" className="space-y-4 rounded-xl border bg-white p-5">
-          <form onSubmit={addManual} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_11rem_6rem_auto] md:items-end">
+          <form onSubmit={addManual} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto] md:items-end">
             <div className="min-w-0 space-y-2">
               <Label htmlFor="manual-head">Head</Label>
               <select
                 id="manual-head"
                 className="h-10 w-full rounded-md border bg-white px-3 text-sm"
                 value={knownHead ? head : head}
-                onChange={(event) => setHead(event.target.value)}
+                onChange={(event) => {
+                  setHead(event.target.value)
+                  setChoice(0)
+                }}
               >
                 <option value="">Select a head</option>
                 {!knownHead && <option value={head}>{head}</option>}
@@ -419,7 +440,7 @@ export function DataInputWorkbench({
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-amount">Balance</Label>
+              <Label htmlFor="manual-amount">Amount (AED)</Label>
               <Input
                 ref={amountInput}
                 id="manual-amount"
@@ -431,20 +452,8 @@ export function DataInputWorkbench({
                 onChange={(event) => setAmount(event.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="manual-side">Dr / Cr</Label>
-              <select
-                id="manual-side"
-                className="h-10 w-full rounded-md border bg-white px-2 text-sm"
-                value={side}
-                onChange={(event) => setSide(event.target.value as "Dr" | "Cr")}
-              >
-                <option value="Dr">Debit</option>
-                <option value="Cr">Credit</option>
-              </select>
-            </div>
             <div className="flex gap-2">
-              <Button type="submit" className="h-10 bg-emerald-800 hover:bg-emerald-900" disabled={!head || head === NEW_HEAD || !parsedAmount}>
+              <Button type="submit" className="h-10 bg-emerald-800 hover:bg-emerald-900" disabled={!head || head === NEW_HEAD || !parsedAmount || Boolean(headChoices && !choice)}>
                 {editingId ? <Check className="size-4" /> : <Plus className="size-4" />}
                 {editingId ? "Update" : "Add"}
               </Button>
@@ -457,6 +466,7 @@ export function DataInputWorkbench({
                     setEditingId(null)
                     setHead("")
                     setAmount("")
+                    setChoice(0)
                   }}
                 >
                   <X className="size-4" />
@@ -467,8 +477,25 @@ export function DataInputWorkbench({
           {amount && parsedAmount === null && (
             <p className="text-sm text-destructive">Enter a valid amount, such as 1,250.00.</p>
           )}
+          {headChoices && (
+            <fieldset className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              <legend className="mb-2 font-medium">Which way is this balance?</legend>
+              {headChoices.map((option) => (
+                <label key={option.label} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="balance-choice"
+                    className="accent-emerald-700"
+                    checked={choice === option.side}
+                    onChange={() => setChoice(option.side)}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </fieldset>
+          )}
           {head && head !== NEW_HEAD && (
-            <HeadHint head={head} customHeads={customHeads} side={side} />
+            <HeadHint head={head} customHeads={customHeads} side={choice || (headChoices ? headChoices[0].side : 1)} />
           )}
           {head === NEW_HEAD && (
             <div className="grid gap-3 rounded-lg border border-dashed p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
@@ -543,8 +570,8 @@ export function DataInputWorkbench({
                 <TableRow>
                   <TableHead className="w-10 pl-4">#</TableHead>
                   <TableHead>Head</TableHead>
-                  <TableHead className="text-right">Debit</TableHead>
-                  <TableHead className="text-right">Credit</TableHead>
+                  <TableHead className="text-right">Amount (AED)</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Statement</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead className="min-w-56">Reported under</TableHead>
@@ -556,12 +583,50 @@ export function DataInputWorkbench({
               <TableBody>
                 {visible.map((row) => {
                   const info = categoryOf(row.scheduleKey ?? "")
+                  const options = choicesFor(row.ledgerName)
+                  const plain = toPlain(row.ledgerName, row.amount, row.scheduleKey ?? "", customHeads)
                   return (
                     <TableRow key={row.id} className={cn(!info && "bg-amber-50/60")}>
                       <TableCell className="pl-4 text-xs text-muted-foreground">{rows.indexOf(row) + 1}</TableCell>
                       <TableCell className="min-w-40 max-w-72 whitespace-normal break-words font-medium">{row.ledgerName}</TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{row.amount > 0 ? formatAmount(row.amount) : ""}</TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{row.amount < 0 ? formatAmount(-row.amount) : ""}</TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {plain < 0 ? (
+                          <span className="text-amber-800" title="Opposite of the usual balance for this head, e.g. an overdrawn bank">
+                            ({formatAmount(-plain)})
+                          </span>
+                        ) : (
+                          formatAmount(plain)
+                        )}
+                      </TableCell>
+                      <TableCell className="min-w-56">
+                        {options ? (
+                          <select
+                            aria-label={`Type for ${row.ledgerName}`}
+                            className="h-9 w-full rounded-md border bg-white px-2 text-sm"
+                            value={Math.sign(row.amount)}
+                            onChange={(event) => {
+                              const side = Number(event.target.value) as Side
+                              const amount = Math.abs(row.amount) * side
+                              const vatLine = row.scheduleKey === "taxReceivable" || row.scheduleKey === "taxPayable"
+                              onRowsChange(
+                                rows.map((item) =>
+                                  item.id === row.id
+                                    ? { ...item, amount, scheduleKey: vatLine ? resolveSchedule(row.ledgerName, amount, customHeads) : item.scheduleKey }
+                                    : item
+                                )
+                              )
+                            }}
+                          >
+                            {options.map((option) => (
+                              <option key={option.label} value={option.side}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {info ? (
                           <span className={cn("rounded px-2 py-0.5 text-xs font-medium", info.statement === "BS" ? "bg-sky-50 text-sky-800" : "bg-violet-50 text-violet-800")}>
@@ -577,7 +642,20 @@ export function DataInputWorkbench({
                           label={`Reported under for ${row.ledgerName}`}
                           value={row.scheduleKey ?? ""}
                           onChange={(scheduleKey) =>
-                            onRowsChange(rows.map((item) => (item.id === row.id ? { ...item, scheduleKey } : item)))
+                            onRowsChange(
+                              rows.map((item) =>
+                                item.id === row.id
+                                  ? {
+                                      ...item,
+                                      scheduleKey,
+                                      // Heads FinScope doesn't know take their direction from where they are reported.
+                                      amount: options
+                                        ? item.amount
+                                        : toSigned(item.ledgerName, plain, scheduleKey, customHeads),
+                                    }
+                                  : item
+                              )
+                            )
                           }
                         />
                       </TableCell>
@@ -603,26 +681,22 @@ export function DataInputWorkbench({
                     </TableRow>
                   )
                 })}
-                <TableRow className="bg-secondary/70 font-semibold">
-                  <TableCell />
-                  <TableCell>Total</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatAmount(debit)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatAmount(credit)}</TableCell>
-                  <TableCell colSpan={4}>
-                    {difference === 0 ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-800">
-                        <CheckCircle2 className="size-4" /> Balanced
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-destructive">
-                        <AlertCircle className="size-4" /> Out of balance by {formatAmount(Math.abs(difference))} ({difference > 0 ? "debits higher" : "credits higher"})
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
               </TableBody>
             </Table>
           </div>
+          {difference === 0 ? (
+            <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900">
+              <CheckCircle2 className="size-4" /> Your figures balance.
+            </p>
+          ) : (
+            <p className="flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-900">
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <span className="font-medium">Your figures are out by AED {formatAmount(Math.abs(difference))}.</span> Usually a
+                balance is missing or entered twice, or a head under Type is set the wrong way.
+              </span>
+            </p>
+          )}
           {pages > 1 && (
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" size="icon-sm" aria-label="Previous page" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
@@ -642,14 +716,15 @@ export function DataInputWorkbench({
   )
 }
 
-function HeadHint({ head, customHeads, side }: { head: string; customHeads: CustomHead[]; side: "Dr" | "Cr" }) {
-  const key = resolveSchedule(head, side === "Dr" ? 1 : -1, customHeads)
+function HeadHint({ head, customHeads, side }: { head: string; customHeads: CustomHead[]; side: Side }) {
+  const key = resolveSchedule(head, side, customHeads)
   const info = categoryOf(key)
   if (!info) return <p className="text-sm text-amber-800">This head needs classifying after it is added.</p>
   const line = scheduleLines.find((item) => item.key === key)!
   return (
     <p className="text-sm text-muted-foreground">
-      Reported in the {info.statement === "BS" ? "balance sheet" : "profit & loss"} under {info.category} · {line.label}
+      Reported in the {info.statement === "BS" ? "balance sheet" : "profit & loss"} under {info.category} · {line.label}.
+      {!choicesFor(head) && " Enter a negative amount only if the balance is the opposite of usual, such as an overdrawn bank."}
     </p>
   )
 }
