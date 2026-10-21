@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertCircle, ArrowRight, Download, FileText, Loader2 } from "lucide-react"
+import { AlertCircle, ArrowRight, FileDown, FileSpreadsheet as Sheet, FileText, Loader2 } from "lucide-react"
+
+import { ReportView } from "@/components/report-view"
 
 import { Button } from "@/components/ui/button"
 import type { Company } from "@/lib/company"
@@ -18,7 +20,7 @@ export function ReportsWorkbench() {
   const [year, setYear] = useState<number | null>(null)
   const [loaded, setLoaded] = useState<{ key: string; model: ReportModel | null; error?: string } | null>(null)
   const [loading, setLoading] = useState(true)
-  const [downloading, setDownloading] = useState(false)
+  const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null)
   const [error, setError] = useState("")
 
   useEffect(() => {
@@ -72,23 +74,23 @@ export function ReportsWorkbench() {
   const current = records.find((record) => record.clientId === companyId && record.year === year)
   const unmapped = current?.statements.unmapped.length ?? 0
 
-  async function download() {
+  async function download(kind: "pdf" | "excel") {
     if (!companyId || !year) return
-    setDownloading(true)
+    setDownloading(kind)
     setError("")
     try {
-      const response = await fetch(`/api/reports/statements?companyId=${companyId}&year=${year}`)
+      const response = await fetch(`/api/reports/${kind === "pdf" ? "statements" : "excel"}?companyId=${companyId}&year=${year}`)
       if (!response.ok) throw new Error((await response.json()).error)
       const url = URL.createObjectURL(await response.blob())
       const anchor = document.createElement("a")
       anchor.href = url
-      anchor.download = `${(company?.name ?? "Company").replace(/[^A-Za-z0-9]+/g, "-")}-Financial-Statements-${year}.pdf`
+      anchor.download = `${(company?.name ?? "Company").replace(/[^A-Za-z0-9]+/g, "-")}-Financial-Statements-${year}.${kind === "pdf" ? "pdf" : "xlsx"}`
       anchor.click()
       setTimeout(() => URL.revokeObjectURL(url), 30_000)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Download failed.")
     } finally {
-      setDownloading(false)
+      setDownloading(null)
     }
   }
 
@@ -154,10 +156,16 @@ export function ReportsWorkbench() {
             </div>
           </div>
         </div>
-        <Button onClick={download} disabled={downloading || !model || unmapped > 0}>
-          {downloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-          {downloading ? "Preparing PDF..." : "Download full report (PDF)"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => download("pdf")} disabled={Boolean(downloading) || !model || unmapped > 0}>
+            {downloading === "pdf" ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
+            {downloading === "pdf" ? "Preparing PDF..." : "Download PDF"}
+          </Button>
+          <Button variant="outline" onClick={() => download("excel")} disabled={Boolean(downloading) || !model || unmapped > 0}>
+            {downloading === "excel" ? <Loader2 className="size-4 animate-spin" /> : <Sheet className="size-4" />}
+            {downloading === "excel" ? "Preparing Excel..." : "Download Excel"}
+          </Button>
+        </div>
       </div>
 
       {unmapped > 0 && (
@@ -186,16 +194,7 @@ export function ReportsWorkbench() {
         </p>
       )}
 
-      {model && !modelLoading && unmapped === 0 && (
-        <div className="overflow-hidden rounded-lg border bg-white shadow-md">
-          <iframe
-            key={`${modelKey}:${model.warnings.length}`}
-            title={`Financial statements ${year}`}
-            src={`/api/reports/statements?companyId=${companyId}&year=${year}&inline=1#view=FitH`}
-            className="h-[80vh] min-h-[36rem] w-full"
-          />
-        </div>
-      )}
+      {model && !modelLoading && <ReportView key={modelKey} model={model} />}
     </div>
   )
 }

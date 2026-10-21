@@ -358,6 +358,20 @@ export function FinancialDataInput() {
                 )}
               </details>
 
+              {resolved && resolved.auto.length > 0 && (
+                <div className="space-y-1 border-l-2 border-sky-600 bg-sky-50 p-4 text-sm text-sky-950">
+                  {resolved.auto.map((entry) => (
+                    <p key={entry.ledgerName} className="flex items-start gap-2">
+                      <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                      {entry.reason}: {entry.ledgerName} {formatAmount(Math.abs(entry.amount))} added automatically, so the
+                      assets&apos; book value falls by the same amount.
+                      {Math.abs(statements.balanceDifference) >= 0.01 &&
+                        " Depreciation is not a cash payment, so your other figures (usually Bank or Cash) now need to account for it before the figures balance."}
+                    </p>
+                  ))}
+                </div>
+              )}
+
               {statements.warnings.length > 0 && (
                 <ul className="space-y-1 border-l-2 border-amber-500 bg-amber-50 p-4 text-sm text-amber-900">
                   {statements.warnings.map((warning) => (

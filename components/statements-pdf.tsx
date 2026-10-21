@@ -221,6 +221,30 @@ function IndexPage({ model, pages }: { model: ReportModel; pages?: PageMarks }) 
   )
 }
 
+function DetailsPage({ model, onPage }: { model: ReportModel; onPage?: OnPage }) {
+  return (
+    <Page size="A4" style={s.page}>
+      <Mark onPage={onPage} name="details" />
+      <Heading model={model} title="COMPANY DETAILS" />
+      <View style={{ borderTopWidth: 2.4, marginTop: 6 }}>
+        {model.details.map((item) => (
+          <View key={item.label} style={[s.row, { alignItems: "flex-start", borderBottomWidth: 0.6, borderBottomColor: "#9a9a9a", paddingVertical: 7 }]} wrap={false}>
+            <Text style={[s.bold, { width: 170 }]}>{item.label}</Text>
+            <View style={{ flex: 1 }}>
+              {item.lines.map((line, i) => (
+                <Text key={i} style={{ marginBottom: i < item.lines.length - 1 ? 2 : 0 }}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
+      <PageNumber />
+    </Page>
+  )
+}
+
 function StatementPage({
   model,
   title,
@@ -335,6 +359,7 @@ export function StatementsPdf({ model, pages, onPage }: { model: ReportModel; pa
     <Document title={`${model.companyName} - Financial Statements ${model.year}`} author={model.companyName} creator="FinScope" producer="FinScope">
       <Cover model={model} />
       <IndexPage model={model} pages={pages} />
+      <DetailsPage model={model} onPage={onPage} />
       <StatementPage
         model={model}
         mark="bs"

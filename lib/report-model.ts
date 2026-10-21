@@ -1,4 +1,4 @@
-import { financialPeriod, formatLongDate, type Company } from "./company"
+import { financialPeriod, formatLongDate, monthNames, quarterCycleLabel, type Company } from "./company"
 import {
   calculateCashFlow,
   scheduleLines,
@@ -43,8 +43,11 @@ export type EquityTable = {
   columns: string[]
   lines: { label: string; values: number[]; kind?: "total" }[]
 }
+export type DetailItem = { label: string; lines: string[] }
 export type ReportModel = {
   companyName: string
+  /** Company details page shown after the index. */
+  details: DetailItem[]
   /** Cover line, e.g. "DUBAI - UNITED ARAB EMIRATES". */
   location: string
   /** Signature line, e.g. "Dubai, U.A.E.". */
@@ -381,6 +384,7 @@ export function buildReport(company: Company, records: FinancialRecord[], year: 
   const emirate = company.emirate || ""
   return {
     companyName: company.name.toUpperCase(),
+    details: companyDetails(company, period),
     location: `${emirate ? `${emirate.toUpperCase()} - ` : ""}UNITED ARAB EMIRATES`,
     place: `${emirate ? `${emirate}, ` : ""}U.A.E.`,
     currency: current.currency,
@@ -395,6 +399,44 @@ export function buildReport(company: Company, records: FinancialRecord[], year: 
     schedules,
     warnings,
   }
+}
+
+function companyDetails(company: Company, period: { start: string; end: string }): DetailItem[] {
+  const or = (value: string) => value || "Not provided"
+  const vat = company.vat.trn
+    ? [
+        `TRN ${company.vat.trn}`,
+        company.vat.frequency === "monthly"
+          ? "Monthly returns"
+          : `Quarterly returns (${quarterCycleLabel(company.vat.cycleStartMonth)})`,
+        ...(company.vat.effectiveDate ? [`Effective from ${formatLongDate(company.vat.effectiveDate)}`] : []),
+      ]
+    : ["Not registered"]
+  const yearEnd = monthNames[company.ct.yearEndMonth - 1]
+  const ct = company.ct.trn
+    ? [
+        `TRN ${company.ct.trn}`,
+        `Tax period: financial year ending ${yearEnd} (this period ${formatLongDate(period.start)} to ${formatLongDate(period.end)})`,
+        ...(company.ct.firstPeriodStart ? [`First tax period starts ${formatLongDate(company.ct.firstPeriodStart)}`] : []),
+      ]
+    : ["Not registered"]
+  return [
+    { label: "Company name", lines: [company.name] },
+    { label: "Legal type", lines: [or(company.legalForm)] },
+    { label: "Licensing authority", lines: [or([company.authority, company.emirate].filter(Boolean).join(", "))] },
+    { label: "License number", lines: [or(company.licenseNumber)] },
+    { label: "License issue date", lines: [or(company.licenseIssueDate ? formatLongDate(company.licenseIssueDate) : "")] },
+    { label: "Business activity", lines: [or(company.businessActivity)] },
+    {
+      label: "Owners",
+      lines: company.partners.length
+        ? company.partners.map((partner) => `${partner.name}${partner.nationality ? ` (${partner.nationality})` : ""} – ${money(partner.sharePercent)}%`)
+        : ["Not provided"],
+    },
+    { label: "Manager", lines: [or(company.manager)] },
+    { label: "VAT registration", lines: vat },
+    { label: "Corporate tax registration", lines: ct },
+  ]
 }
 
 /** Splits the PPE heads into cost and accumulated depreciation and builds the movement. */
@@ -458,6 +500,7 @@ function sentence(label: string) {
 
 /** Sections listed in the index, in page order. */
 export const reportIndex = [
+  { key: "details", label: "Company details" },
   { key: "bs", label: "Statement of financial position" },
   { key: "income", label: "Statement of comprehensive income" },
   { key: "equity", label: "Statement of changes in equity" },

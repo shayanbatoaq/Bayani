@@ -23,11 +23,42 @@ const round = (n: number) => Math.round(n * 100) / 100
 const normal = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ")
 const isBalanceSheet = (key: string) => categoryOf(key)?.statement === "BS"
 
+const CONTRA = /depreciation|allowance|accumulated|amorti[sz]ation/i
+const isContra = (row: FinancialLedger) => row.scheduleKey === "ppe" && CONTRA.test(row.ledgerName)
+
+export type AutoEntry = { ledgerName: string; amount: number; reason: string }
+
 export function closingRowsFor(
   input: Pick<FinancialInput, "rows" | "entryMode">,
   prior: PriorYear | null
+): { rows: FinancialLedger[]; carried: number; auto: AutoEntry[] } {
+  const { rows, carried } = balancesFor(input, prior)
+  // Depreciation always reduces the assets' book value. When the year has a depreciation
+  // charge but no accumulated depreciation was entered, post the other side here.
+  const charge = round(input.rows.filter((row) => row.scheduleKey === "depreciation").reduce((sum, row) => sum + row.amount, 0))
+  const auto: AutoEntry[] = []
+  if (charge !== 0 && !input.rows.some(isContra)) {
+    const at = rows.findIndex(isContra)
+    const priorAccumulated =
+      input.entryMode === "movement" || !prior ? 0 : prior.closingRows.filter(isContra).reduce((sum, row) => sum + row.amount, 0)
+    if (at >= 0) rows[at] = { ...rows[at], amount: round(rows[at].amount - charge) }
+    else if (input.entryMode !== "movement" && priorAccumulated !== 0)
+      rows.push({ id: "auto-accumulated", ledgerName: prior!.closingRows.find(isContra)!.ledgerName, amount: round(priorAccumulated - charge), scheduleKey: "ppe" })
+    else rows.push({ id: "auto-accumulated", ledgerName: "Allowance for Depreciation", amount: -charge, scheduleKey: "ppe" })
+    auto.push({
+      ledgerName: at >= 0 ? rows[at].ledgerName : "Allowance for Depreciation",
+      amount: -charge,
+      reason: "Accumulated depreciation increased by the year's depreciation charge",
+    })
+  }
+  return { rows, carried, auto }
+}
+
+function balancesFor(
+  input: Pick<FinancialInput, "rows" | "entryMode">,
+  prior: PriorYear | null
 ): { rows: FinancialLedger[]; carried: number } {
-  if (input.entryMode !== "movement" || !prior) return { rows: input.rows, carried: 0 }
+  if (input.entryMode !== "movement" || !prior) return { rows: input.rows.map((row) => ({ ...row })), carried: 0 }
   const balances = new Map<string, FinancialLedger>()
   const add = (row: FinancialLedger, id: string) => {
     const key = normal(row.ledgerName)
@@ -80,11 +111,12 @@ export function priorYearOf(records: FinancialRecord[], clientId: string, year: 
 
 /** Statements for one year in either entry mode. */
 export function statementsFor(input: FinancialInput, prior: PriorYear | null) {
-  const { rows, carried } = closingRowsFor(input, prior)
+  const { rows, carried, auto } = closingRowsFor(input, prior)
   const openingEquity = input.openingEquity ?? (input.entryMode === "movement" && prior ? prior.statements.closingEquity : null)
   return {
     closingRows: rows,
     carried,
+    auto,
     statements: calculateFinancials({ ...input, rows, openingEquity }),
   }
 }

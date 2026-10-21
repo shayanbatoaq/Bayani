@@ -409,3 +409,33 @@ test("movement entry carries balances forward; closing entry is reported as ente
   const [, closing26] = resolveRecords([y25, { ...y26, entryMode: "closing" }])
   assert.equal(bs(closing26, 46), 0)
 })
+
+test("depreciation without accumulated depreciation still reduces book value", async () => {
+  const { resolveRecords } = await jiti.import("../lib/movement.ts")
+  const raw = (year, entryMode, entries) => ({
+    clientId: "00000000-0000-4000-8000-000000000001", clientName: "Test LLC", year, currency: "AED",
+    openingEquity: null, entryMode, id: `x-${year}`, revision: 1, updatedAt: "",
+    rows: entries.map(([ledgerName, amount], i) => ({ id: `${year}-${i}`, ledgerName, amount, scheduleKey: resolveSchedule(ledgerName, amount) })),
+  })
+  const y25 = raw(2025, "closing", [["Revenue", -20000], ["Cost of Goods Sold", 10000], ["Share Capital", -25000], ["Bank", 15000], ["Rent Expense", 10000], ["Fixed Assets", 10000]])
+  // Exactly as entered in the app: depreciation with no allowance line.
+  const entries26 = [["Bank", 40000], ["Revenue", -80000], ["Cost of Goods Sold", 7500], ["Rent Expense", 7000], ["Depreciation Expense", 2500], ["Accounts Payable", -4500], ["Accounts Receivable", 1500], ["Current Account", 15000], ["Cash in Hand", 11000]]
+  for (const mode of ["movement", "closing"]) {
+    const [, r26] = resolveRecords([y25, raw(2026, mode, mode === "closing" ? [...entries26, ["Share Capital", -25000], ["Fixed Assets", 10000]] : entries26)])
+    assert.equal(r26.statements.bs.find((line) => line.row === 11).amount, 7500, mode)
+    // The 2,500 credit was never entered, so the figures are now out by that amount and say so.
+    if (mode === "movement") assert.equal(Math.abs(r26.statements.balanceDifference), 2500)
+  }
+})
+
+test("Excel report has one sheet per statement", async () => {
+  const { reportWorkbook } = await jiti.import("../lib/report-workbook.ts")
+  const ExcelJS = (await import("exceljs")).default
+  const buffer = await reportWorkbook(buildReport(company, [y2024, y2025], 2025))
+  const book = new ExcelJS.Workbook()
+  await book.xlsx.load(buffer)
+  assert.deepEqual(book.worksheets.map((ws) => ws.name), ["Company details", "Financial position", "Comprehensive income", "Changes in equity", "Cash flows", "Schedules"])
+  const bs = book.getWorksheet("Financial position")
+  const total = bs.getRows(1, bs.rowCount).find((row) => row.getCell(1).value === "TOTAL ASSETS")
+  assert.equal(total.getCell(3).value, y2025.statements.bs.find((l) => l.row === 25).amount)
+})
