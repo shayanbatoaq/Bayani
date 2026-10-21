@@ -3,11 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  BarChart3,
   Building2,
   DollarSign,
   Download,
-  Handshake,
   Home,
   Landmark,
   LayoutDashboard,
@@ -16,7 +14,6 @@ import {
   Receipt,
   Settings,
   ShieldCheck,
-  Sparkles,
   Upload,
 } from "lucide-react"
 
@@ -37,14 +34,11 @@ const navItems = [
   { href: "/profile", label: "Profile", icon: Building2 },
   { href: "/regulatory", label: "Regulatory", icon: ShieldCheck },
   { href: "/data-input", label: "Data Input", icon: Upload },
-  { href: "/industry", label: "Industry", icon: BarChart3 },
-  { href: "/ai-cfo-report", label: "AI CFO", icon: Sparkles },
+  { href: "/final-report", label: "Final Report", icon: Download },
   { href: "/vat", label: "VAT", icon: Receipt },
   { href: "/corporate-tax", label: "Corporate Tax", icon: Landmark },
   { href: "/audit", label: "Audit", icon: ShieldCheck },
   { href: "/valuation", label: "Valuation", icon: DollarSign },
-  { href: "/final-report", label: "Final Report", icon: Download },
-  { href: "/expert-review", label: "AMA Review", icon: Handshake },
   { href: "/admin", label: "Admin", icon: Settings },
 ]
 

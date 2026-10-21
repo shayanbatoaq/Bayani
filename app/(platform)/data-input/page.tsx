@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/page-header"
-import { DataInputWorkbench } from "@/components/data-input-workbench"
+import { FinancialDataInput } from "@/components/financial-data-input"
 
 export default function DataInputPage() {
   return (
@@ -8,7 +8,7 @@ export default function DataInputPage() {
         eyebrow="Data Input"
         title="Trial balance"
       />
-      <DataInputWorkbench />
+      <FinancialDataInput />
     </div>
   )
 }

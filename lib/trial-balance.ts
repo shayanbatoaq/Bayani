@@ -1,4 +1,5 @@
 export type LedgerRow = {
+  scheduleKey?: string
   id: string
   ledgerName: string
   amount: number

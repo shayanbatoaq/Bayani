@@ -53,8 +53,8 @@ export default function DashboardPage() {
               Commentary is indicative, requires professional review, and is not professional advice.
             </p>
             <Button asChild variant="outline">
-              <Link href="/ai-cfo-report">
-                Open CFO report
+              <Link href="/final-report">
+                Open final report
                 <ArrowRight className="size-4" />
               </Link>
             </Button>
@@ -101,7 +101,7 @@ export default function DashboardPage() {
             <Link href="/final-report">Generate PDF report</Link>
           </Button>
           <Button asChild variant="outline">
-            <Link href="/expert-review">Request expert review</Link>
+            <Link href="/audit">Request expert review</Link>
           </Button>
         </CardContent>
       </Card>

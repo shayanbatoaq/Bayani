@@ -21,15 +21,18 @@ import {
 import { mappingCategories } from "@/lib/mock-data"
 import type { LedgerRow } from "@/lib/trial-balance"
 import { cn } from "@/lib/utils"
+import { scheduleLines } from "@/lib/financial-statements"
 
 export function MappingWorkbench({
   rows,
   onChange,
   onConfirm,
+  onScheduleChange,
 }: {
   rows: LedgerRow[]
   onChange: (id: string, category: string) => void
   onConfirm: () => void
+  onScheduleChange?: (id: string, scheduleKey: string) => void
 }) {
   const pending = rows.filter((row) => row.confidence !== "Reviewed").length
   return (
@@ -56,6 +59,7 @@ export function MappingWorkbench({
             <TableRow>
               <TableHead>Name of ledger</TableHead>
               <TableHead>Standard category</TableHead>
+              {onScheduleChange && <TableHead>Financial schedule</TableHead>}
               <TableHead>Confidence</TableHead>
               <TableHead>Rationale</TableHead>
             </TableRow>
@@ -96,6 +100,30 @@ export function MappingWorkbench({
                     </SelectContent>
                   </Select>
                 </TableCell>
+                {onScheduleChange && (
+                  <TableCell className="min-w-72">
+                    <select
+                      aria-label={`Schedule for ${row.ledgerName}`}
+                      value={row.scheduleKey ?? ""}
+                      onChange={(event) =>
+                        onScheduleChange(row.id, event.target.value)
+                      }
+                      className="h-10 w-full max-w-80 rounded-md border bg-white px-2 text-sm"
+                    >
+                      <option value="">Select schedule</option>
+                      {scheduleLines.map((line) => (
+                        <option key={line.key} value={line.key}>
+                          {line.note}. {line.label}
+                          {line.key === "taxReceivable"
+                            ? " (receivable)"
+                            : line.key === "taxPayable"
+                              ? " (payable)"
+                              : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
+                )}
                 <TableCell>
                   <Badge
                     variant="outline"

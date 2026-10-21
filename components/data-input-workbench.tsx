@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import {
   AlertCircle,
   ArrowDownToLine,
@@ -52,15 +52,27 @@ import {
   type LedgerRow,
 } from "@/lib/trial-balance"
 import { cn } from "@/lib/utils"
+import { suggestSchedule } from "@/lib/financial-statements"
 
 const PAGE_SIZE = 15
 
-export function DataInputWorkbench() {
+const EMPTY_ROWS: LedgerRow[] = []
+
+export function DataInputWorkbench({
+  initialRows = EMPTY_ROWS,
+  onRowsChange,
+}: {
+  initialRows?: LedgerRow[]
+  onRowsChange?: (rows: LedgerRow[]) => void
+}) {
   const ledgerListId = useId()
   const fileInput = useRef<HTMLInputElement>(null)
   const nameInput = useRef<HTMLInputElement>(null)
   const [mode, setMode] = useState<"upload" | "manual" | null>(null)
-  const [rows, setRows] = useState<LedgerRow[]>([])
+  const [rows, setRows] = useState<LedgerRow[]>(initialRows)
+  useEffect(() => {
+    onRowsChange?.(rows)
+  }, [rows, onRowsChange])
   const [manual, setManual] = useState({ ledgerName: "", amount: "" })
   const [editingId, setEditingId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -87,7 +99,10 @@ export function DataInputWorkbench() {
 
   function commitImport(sheet: ImportSheet, filename: string) {
     const parsed = parseImportSheet(sheet)
-    const imported = parsed.entries.map(createLedgerRow)
+    const imported = parsed.entries.map((entry) => ({
+      ...createLedgerRow(entry),
+      scheduleKey: suggestSchedule(entry.ledgerName, entry.amount),
+    }))
     setRows((current) =>
       importMode === "append" ? [...current, ...imported] : imported
     )
@@ -140,6 +155,10 @@ export function DataInputWorkbench() {
             ? {
                 ...row,
                 ...entry,
+                scheduleKey:
+                  row.ledgerName === entry.ledgerName
+                    ? row.scheduleKey
+                    : suggestSchedule(entry.ledgerName, entry.amount),
                 ...(row.ledgerName === entry.ledgerName
                   ? {}
                   : suggestMapping(entry.ledgerName)),
@@ -149,7 +168,13 @@ export function DataInputWorkbench() {
       )
       setNotice(`${entry.ledgerName} updated.`)
     } else {
-      setRows((current) => [...current, createLedgerRow(entry)])
+      setRows((current) => [
+        ...current,
+        {
+          ...createLedgerRow(entry),
+          scheduleKey: suggestSchedule(entry.ledgerName, entry.amount),
+        },
+      ])
       setPage(Math.ceil((rows.length + 1) / PAGE_SIZE))
       setNotice(`${entry.ledgerName} added.`)
     }
@@ -499,7 +524,7 @@ export function DataInputWorkbench() {
           {notice}
         </p>
 
-        {mode && (
+        {(mode || rows.length > 0) && (
           <section
             aria-label="Trial balance review"
             className="min-w-0 space-y-5 border-t pt-6"
@@ -625,6 +650,13 @@ export function DataInputWorkbench() {
                   <TabsContent value="mapping" className="min-w-0">
                     <MappingWorkbench
                       rows={visibleRows}
+                      onScheduleChange={(id, scheduleKey) =>
+                        setRows((current) =>
+                          current.map((row) =>
+                            row.id === id ? { ...row, scheduleKey } : row
+                          )
+                        )
+                      }
                       onChange={(id, category) =>
                         setRows((current) =>
                           current.map((row) =>
