@@ -7,13 +7,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <BrandLogo imageClassName="h-12 brightness-0 invert" />
         <div>
           <p className="max-w-xl text-4xl font-semibold leading-tight">
-            CFO, audit, tax, benchmark, and valuation intelligence from one structured assessment flow.
+            Financial statements, VAT and corporate tax from your trial balance.
           </p>
           <p className="mt-5 max-w-lg text-sm leading-6 text-white/72">
-            FinScope AI calculates financial results first, applies rules and benchmarks second, then uses AI only for explanation and action-plan wording.
+            Set up your company once and every report uses the same verified details.
           </p>
         </div>
-        <p className="text-xs text-white/60">Indicative only. Requires professional review.</p>
+        <p className="text-xs text-white/60">Outputs require professional review.</p>
       </section>
       <section className="flex min-h-screen flex-col">
         <div className="flex h-20 items-center px-6 lg:hidden">

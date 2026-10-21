@@ -1,90 +1,90 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { ArrowRight, FolderOpen, Loader2, Plus, Save } from "lucide-react"
+import { AlertCircle, ArrowRight, Building2, CheckCircle2, Loader2, Save } from "lucide-react"
+
 import { DataInputWorkbench } from "@/components/data-input-workbench"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { financialPeriod, formatLongDate, type Company } from "@/lib/company"
 import {
   calculateFinancials,
+  scheduleValue,
   type FinancialRecord,
   type OpeningEquity,
 } from "@/lib/financial-statements"
+import type { CustomHead } from "@/lib/ledger-heads"
 import { createLedgerRow, type LedgerRow } from "@/lib/trial-balance"
+import { cn } from "@/lib/utils"
 
-const EMPTY: LedgerRow[] = []
-const OPENING = { capital: "", earnings: "", retained: "", shareholder: "" }
+const MAX_YEARS = 5
+const OPENING_FIELDS = [
+  ["capital", "Share capital"],
+  ["earnings", "Prior-year earnings"],
+  ["retained", "Retained earnings"],
+  ["shareholder", "Shareholders' current account"],
+] as const
+type OpeningText = Record<(typeof OPENING_FIELDS)[number][0], string>
+const BLANK: OpeningText = { capital: "", earnings: "", retained: "", shareholder: "" }
 
 export function FinancialDataInput() {
+  const [companies, setCompanies] = useState<Company[]>([])
   const [records, setRecords] = useState<FinancialRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [local, setLocal] = useState(false)
-  const [clientId, setClientId] = useState("")
-  const [clientName, setClientName] = useState("")
-  const [year, setYear] = useState(new Date().getFullYear())
-  const [currency, setCurrency] = useState("AED")
-  const [opening, setOpening] = useState(OPENING)
-  const [rows, setRows] = useState<LedgerRow[]>(EMPTY)
-  const [initialRows, setInitialRows] = useState<LedgerRow[]>(EMPTY)
-  const [editorKey, setEditorKey] = useState(0)
+  const [companyId, setCompanyId] = useState("")
+  const [year, setYear] = useState<number | null>(null)
+  const [rows, setRows] = useState<LedgerRow[]>([])
+  const [opening, setOpening] = useState<OpeningText>(BLANK)
+  const [openingSource, setOpeningSource] = useState<"saved" | "prior" | "manual" | "">("")
+  const [openingOpen, setOpeningOpen] = useState(true)
   const [revision, setRevision] = useState(0)
   const [savedSignature, setSavedSignature] = useState("")
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
 
   useEffect(() => {
-    const controller = new AbortController()
-    fetch("/api/financial-data", {
-      signal: controller.signal,
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        const data = await response.json()
-        if (!response.ok) throw new Error(data.error)
-        setRecords(data.records)
-        setLocal(data.localWorkspace)
-        setClientId(crypto.randomUUID())
+    Promise.all([
+      fetch("/api/companies", { cache: "no-store" }).then((r) => r.json().then((d) => (r.ok ? d : Promise.reject(new Error(d.error))))),
+      fetch("/api/financial-data", { cache: "no-store" }).then((r) => r.json().then((d) => (r.ok ? d : Promise.reject(new Error(d.error))))),
+    ])
+      .then(([companyData, recordData]) => {
+        setCompanies(companyData.companies)
+        setRecords(recordData.records)
+        if (companyData.companies[0]) setCompanyId(companyData.companies[0].id)
       })
-      .catch((cause) => {
-        if (cause.name !== "AbortError") setError(cause.message)
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
-      })
-    return () => controller.abort()
+      .catch((cause) => setError(cause.message))
+      .finally(() => setLoading(false))
   }, [])
 
-  const openingValues = Object.values(opening)
-  const openingComplete = openingValues.every(
-    (value) => value.trim() !== "" && Number.isFinite(Number(value))
+  const company = companies.find((item) => item.id === companyId)
+  const companyRecords = useMemo(
+    () => records.filter((record) => record.clientId === companyId),
+    [records, companyId]
   )
-  const openingPartial =
-    openingValues.some((value) => value !== "") && !openingComplete
+  const thisYear = new Date().getFullYear()
+  const years = Array.from({ length: MAX_YEARS }, (_, i) => thisYear - MAX_YEARS + 1 + i)
+
+  const openingComplete = Object.values(opening).every((v) => v.trim() !== "" && Number.isFinite(Number(v)))
+  const openingPartial = Object.values(opening).some((v) => v.trim() !== "") && !openingComplete
   const openingEquity = openingComplete
-    ? (Object.fromEntries(
-        Object.entries(opening).map(([key, value]) => [key, Number(value)])
-      ) as OpeningEquity)
+    ? (Object.fromEntries(Object.entries(opening).map(([k, v]) => [k, Number(v)])) as OpeningEquity)
     : null
-  const input = {
-    clientId,
-    clientName: clientName.trim(),
-    year,
-    currency,
-    openingEquity,
-    rows: rows.map((row) => ({
-      id: row.id,
-      ledgerName: row.ledgerName,
-      amount: row.amount,
-      scheduleKey: row.scheduleKey ?? "",
-    })),
-  }
-  const signature = JSON.stringify(input)
-  const dirty =
-    (rows.length > 0 || savedSignature !== "") && signature !== savedSignature
-  const statements = calculateFinancials(input)
+  const input = company && year
+    ? {
+        clientId: company.id,
+        clientName: company.name,
+        year,
+        currency: "AED",
+        openingEquity,
+        rows: rows.map((row) => ({ id: row.id, ledgerName: row.ledgerName, amount: row.amount, scheduleKey: row.scheduleKey ?? "" })),
+      }
+    : null
+  const signature = input ? JSON.stringify(input) : ""
+  const dirty = Boolean(input) && signature !== savedSignature && (rows.length > 0 || revision > 0)
+  const statements = input ? calculateFinancials(input) : null
 
   useEffect(() => {
     if (!dirty) return
@@ -92,72 +92,41 @@ export function FinancialDataInput() {
       event.preventDefault()
       event.returnValue = ""
     }
-    const navigation = (event: MouseEvent) => {
-      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
-        return
-      const anchor = (event.target as Element).closest?.(
-        "a[href]"
-      ) as HTMLAnchorElement | null
-      if (
-        !anchor ||
-        anchor.target === "_blank" ||
-        anchor.hasAttribute("download") ||
-        anchor.getAttribute("aria-disabled") === "true"
-      )
-        return
-      const url = new URL(anchor.href, window.location.href)
-      if (
-        url.origin === window.location.origin &&
-        url.pathname !== window.location.pathname &&
-        !window.confirm("Leave Data Input and discard unsaved changes?")
-      ) {
-        event.preventDefault()
-        event.stopPropagation()
-      }
-    }
     window.addEventListener("beforeunload", handler)
-    document.addEventListener("click", navigation, true)
-    return () => {
-      window.removeEventListener("beforeunload", handler)
-      document.removeEventListener("click", navigation, true)
-    }
+    return () => window.removeEventListener("beforeunload", handler)
   }, [dirty])
 
-  function openRecord(record?: FinancialRecord) {
-    if (
-      dirty &&
-      !window.confirm("Discard unsaved changes and open another trial balance?")
-    )
-      return
-    const nextRows =
-      record?.rows.map((row) => ({ ...createLedgerRow(row), ...row })) ?? EMPTY
-    setInitialRows(nextRows)
+  function selectYear(next: number) {
+    if (!company) return
+    if (dirty && !window.confirm(`Discard unsaved changes to ${year}?`)) return
+    const record = companyRecords.find((item) => item.year === next)
+    const prior = companyRecords.find((item) => item.year === next - 1)
+    const nextRows = record?.rows.map((row) => ({ ...createLedgerRow(row), ...row })) ?? []
+    let nextOpening = BLANK
+    let source: typeof openingSource = ""
+    if (record?.openingEquity) {
+      nextOpening = toText(record.openingEquity)
+      source = "saved"
+    } else if (prior) {
+      const closing = prior.statements.closingEquity
+      nextOpening = toText(closing)
+      source = "prior"
+    }
+    setYear(next)
     setRows(nextRows)
-    setEditorKey((key) => key + 1)
-    setClientId(record?.clientId ?? crypto.randomUUID())
-    setClientName(record?.clientName ?? "")
-    setYear(record?.year ?? new Date().getFullYear())
-    setCurrency(record?.currency ?? "AED")
-    setOpening(
-      record?.openingEquity
-        ? {
-            capital: String(record.openingEquity.capital),
-            earnings: String(record.openingEquity.earnings),
-            retained: String(record.openingEquity.retained),
-            shareholder: String(record.openingEquity.shareholder),
-          }
-        : OPENING
-    )
+    setOpening(nextOpening)
+    setOpeningSource(source)
+    setOpeningOpen(!record?.openingEquity && !prior)
     setRevision(record?.revision ?? 0)
     setMessage("")
     setError("")
     setSavedSignature(
       record
         ? JSON.stringify({
-            clientId: record.clientId,
-            clientName: record.clientName,
-            year: record.year,
-            currency: record.currency,
+            clientId: company.id,
+            clientName: company.name,
+            year: next,
+            currency: "AED",
             openingEquity: record.openingEquity,
             rows: record.rows,
           })
@@ -165,35 +134,32 @@ export function FinancialDataInput() {
     )
   }
 
-  function newYear() {
-    if (
-      dirty &&
-      !window.confirm(
-        "Discard unsaved changes and start another reporting year?"
-      )
-    )
-      return
-    const previous = records
-      .filter((record) => record.clientId === clientId)
-      .sort((a, b) => b.year - a.year)[0]
-    if (!previous) return
-    const balances = previous.statements.closingEquity
-    setYear(previous.year + 1)
-    setOpening({
-      capital: String(balances.capital),
-      earnings: String(balances.earnings),
-      retained: String(balances.retained),
-      shareholder: String(balances.shareholder),
+  async function addCustomHead(head: CustomHead) {
+    if (!company) return
+    const heads = [...company.customHeads.filter((h) => h.name.toLowerCase() !== head.name.toLowerCase()), head]
+    const response = await fetch("/api/companies/extras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: company.id, customHeads: heads }),
     })
-    setRows(EMPTY)
-    setInitialRows(EMPTY)
-    setEditorKey((key) => key + 1)
-    setRevision(0)
-    setSavedSignature("")
-    setMessage("")
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error)
+    setCompanies((current) => current.map((item) => (item.id === company.id ? data.company : item)))
+  }
+
+  function useTrialBalanceEquity() {
+    if (!statements) return
+    setOpening({
+      capital: String(scheduleValue(statements, "capital")),
+      earnings: "0",
+      retained: String(scheduleValue(statements, "retained")),
+      shareholder: String(scheduleValue(statements, "shareholder")),
+    })
+    setOpeningSource("manual")
   }
 
   async function save() {
+    if (!input) return
     setSaving(true)
     setError("")
     setMessage("")
@@ -205,21 +171,12 @@ export function FinancialDataInput() {
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
-      setRecords((current) =>
-        [
-          ...current.filter((record) => record.id !== data.record.id),
-          data.record,
-        ].sort((a, b) => b.year - a.year)
-      )
+      setRecords((current) => [...current.filter((r) => r.id !== data.record.id), data.record])
       setRevision(data.record.revision)
       setSavedSignature(signature)
-      setMessage(`Saved ${clientName} for ${year}.`)
+      setMessage(`${year} saved.`)
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to save financial data."
-      )
+      setError(cause instanceof Error ? cause.message : "Unable to save.")
     } finally {
       setSaving(false)
     }
@@ -229,209 +186,191 @@ export function FinancialDataInput() {
     return (
       <p role="status" className="flex items-center gap-2 text-sm">
         <Loader2 className="size-4 animate-spin" />
-        Loading financial records...
+        Loading...
       </p>
     )
 
+  if (!companies.length)
+    return (
+      <div className="space-y-4 rounded-xl border bg-white p-10 text-center">
+        <Building2 className="mx-auto size-9 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Add your company first</h2>
+        <p className="text-sm text-muted-foreground">Data input is saved against the company in your profile.</p>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <Button asChild>
+          <Link href="/profile">
+            Go to Profile <ArrowRight className="size-4" />
+          </Link>
+        </Button>
+      </div>
+    )
+
+  const period = year ? financialPeriod(year, company?.ct.yearEndMonth ?? 12) : null
+
   return (
-    <div className="space-y-7">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="w-full min-w-0 space-y-2 sm:w-auto sm:flex-1">
-          <Label htmlFor="saved-trial-balance">
-            <FolderOpen className="size-4" />
-            Saved financial data
-          </Label>
-          <select
-            id="saved-trial-balance"
-            disabled={saving}
-            className="h-10 w-full rounded-md border bg-white px-3 text-sm"
-            value={revision ? `${clientId}-${year}` : ""}
-            onChange={(event) => {
-              const record = records.find(
-                (item) => item.id === event.target.value
-              )
-              if (record) openRecord(record)
-            }}
-          >
-            <option value="">New trial balance</option>
-            {records.map((record) => (
-              <option key={record.id} value={record.id}>
-                {record.clientName} · {record.year} · {record.currency}
-              </option>
-            ))}
-          </select>
-        </div>
-        <Button
-          variant="outline"
-          disabled={saving}
-          onClick={() => openRecord()}
-        >
-          <Plus className="size-4" />
-          New client
-        </Button>
-        <Button
-          variant="outline"
-          disabled={
-            saving || !records.some((record) => record.clientId === clientId)
-          }
-          onClick={newYear}
-        >
-          <Plus className="size-4" />
-          Add year
-        </Button>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_7rem]">
-        <div className="space-y-2">
-          <Label htmlFor="financial-client">Client / company name</Label>
-          <Input
-            id="financial-client"
-            value={clientName}
-            onChange={(event) => setClientName(event.target.value)}
-            placeholder="Company name"
-            maxLength={160}
-            className="bg-white"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="financial-year">Reporting year</Label>
-          <Input
-            id="financial-year"
-            type="number"
-            min={1900}
-            max={2200}
-            value={year || ""}
-            onChange={(event) => {
-              setYear(Number(event.target.value))
-              setRevision(0)
-            }}
-            className="bg-white"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="financial-currency">Currency</Label>
-          <select
-            id="financial-currency"
-            value={currency}
-            onChange={(event) => setCurrency(event.target.value)}
-            className="h-9 w-full rounded-md border bg-white px-2 text-sm"
-          >
-            {["AED", "USD", "GBP", "EUR", "PKR"].map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      {local && (
-        <p className="text-xs text-muted-foreground">
-          Local workspace. Financial records are saved on this server and
-          accessible from this browser workspace.
-        </p>
-      )}
-      <DataInputWorkbench
-        key={editorKey}
-        initialRows={initialRows}
-        onRowsChange={setRows}
-      />
-      {rows.length > 0 && (
-        <>
-          <details className="border-y py-4">
-            <summary className="cursor-pointer font-medium">
-              Opening equity for {year}
-            </summary>
-            <p className="my-3 text-sm text-muted-foreground">
-              Balances at 1 January. Use positive credit balances, negative
-              deficits, and zero where applicable. All four balances are needed
-              to calculate equity movements.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {(
-                [
-                  ["capital", "Share capital"],
-                  ["earnings", "Prior-year earnings"],
-                  ["retained", "Retained earnings"],
-                  ["shareholder", "Shareholders current account"],
-                ] as const
-              ).map(([key, label]) => (
-                <div key={key} className="space-y-2">
-                  <Label htmlFor={`opening-${key}`}>{label}</Label>
-                  <Input
-                    id={`opening-${key}`}
-                    inputMode="decimal"
-                    value={opening[key]}
-                    onChange={(event) =>
-                      setOpening((current) => ({
-                        ...current,
-                        [key]: event.target.value,
-                      }))
-                    }
-                    className="bg-white"
-                  />
-                </div>
-              ))}
-            </div>
-          </details>
-          <p className="text-sm text-muted-foreground">
-            Trial balance before year-end closing entries: debit balances
-            positive; credit balances negative. Reporting date: 31 December{" "}
-            {year}.
-          </p>
-          {statements.warnings.length > 0 && (
-            <ul className="list-inside list-disc space-y-1 text-sm text-amber-800">
-              {statements.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          )}
-          {openingPartial && (
-            <p role="alert" className="text-sm text-destructive">
-              Complete all four opening-equity balances, or leave all four
-              blank.
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-3 border-t pt-5">
-            <Button
-              onClick={save}
-              disabled={
-                saving ||
-                !clientName.trim() ||
-                !clientId ||
-                openingPartial ||
-                !Number.isInteger(year) ||
-                year < 1900 ||
-                year > 2200
-              }
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-end gap-6">
+        {companies.length > 1 ? (
+          <div className="space-y-2">
+            <Label htmlFor="company">Company</Label>
+            <select
+              id="company"
+              className="h-10 rounded-md border bg-white px-3 text-sm"
+              value={companyId}
+              onChange={(event) => {
+                if (dirty && !window.confirm("Discard unsaved changes?")) return
+                setCompanyId(event.target.value)
+                setYear(null)
+                setRows([])
+              }}
             >
-              <Save className="size-4" />
-              {saving ? "Saving..." : "Save financial data"}
-            </Button>
-            <Button asChild variant="outline" disabled={dirty || !revision}>
-              <Link
-                href="/final-report"
-                aria-disabled={dirty || !revision}
-                onClick={(event) => {
-                  if (dirty || !revision) event.preventDefault()
-                }}
-              >
-                Final report
-                <ArrowRight className="size-4" />
-              </Link>
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              {dirty ? "Unsaved changes" : revision ? "Saved" : ""}
-            </span>
+              {companies.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
           </div>
+        ) : (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Company</p>
+            <p className="mt-1 text-lg font-semibold">{company?.name}</p>
+          </div>
+        )}
+      </div>
+
+      <fieldset>
+        <legend className="mb-3 text-sm font-medium">Upload data for year</legend>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {years.map((option) => {
+            const saved = companyRecords.find((record) => record.year === option)
+            return (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={year === option}
+                onClick={() => selectYear(option)}
+                className={cn(
+                  "rounded-lg border bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-primary/60",
+                  year === option && "border-primary bg-primary text-primary-foreground hover:border-primary"
+                )}
+              >
+                <span className="block text-lg font-semibold">{option}</span>
+                <span className={cn("mt-0.5 flex items-center gap-1 text-xs", year === option ? "text-white/80" : saved ? "text-emerald-700" : "text-muted-foreground")}>
+                  {saved ? (
+                    <>
+                      <CheckCircle2 className="size-3.5" /> Saved
+                    </>
+                  ) : (
+                    "No data"
+                  )}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </fieldset>
+
+      {year && company && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Trial balance for the year {formatLongDate(period!.start)} – {formatLongDate(period!.end)}, before
+            year-end closing entries.
+          </p>
+          <DataInputWorkbench
+            key={`${company.id}-${year}`}
+            rows={rows}
+            onRowsChange={setRows}
+            customHeads={company.customHeads}
+            onAddCustomHead={addCustomHead}
+          />
+
+          {rows.length > 0 && statements && (
+            <>
+              <details
+                className="rounded-xl border bg-white p-5"
+                open={openingOpen}
+                onToggle={(event) => setOpeningOpen(event.currentTarget.open)}
+              >
+                <summary className="cursor-pointer font-medium">
+                  Opening equity at {formatLongDate(period!.start)}
+                  {openingSource === "prior" && (
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">· carried from {year - 1}</span>
+                  )}
+                </summary>
+                <p className="my-3 text-sm text-muted-foreground">
+                  Needed for the statement of changes in equity. Credit balances as positive.
+                  {!companyRecords.some((r) => r.year === year - 1) && " There is no saved prior year, so enter these or take them from this trial balance."}
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {OPENING_FIELDS.map(([key, label]) => (
+                    <div key={key} className="space-y-2">
+                      <Label htmlFor={`opening-${key}`}>{label}</Label>
+                      <Input
+                        id={`opening-${key}`}
+                        inputMode="decimal"
+                        className="font-mono"
+                        value={opening[key]}
+                        onChange={(event) => {
+                          setOpening((current) => ({ ...current, [key]: event.target.value }))
+                          setOpeningSource("manual")
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <Button variant="outline" size="sm" className="mt-4" onClick={useTrialBalanceEquity}>
+                  Use equity balances from this trial balance
+                </Button>
+                {openingPartial && (
+                  <p role="alert" className="mt-3 text-sm text-destructive">
+                    Complete all four balances, or leave all four blank.
+                  </p>
+                )}
+              </details>
+
+              {statements.warnings.length > 0 && (
+                <ul className="space-y-1 border-l-2 border-amber-500 bg-amber-50 p-4 text-sm text-amber-900">
+                  {statements.warnings.map((warning) => (
+                    <li key={warning} className="flex items-start gap-2">
+                      <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="sticky bottom-20 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur lg:bottom-4">
+                <Button onClick={save} disabled={saving || openingPartial || !dirty}>
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  {saving ? "Saving..." : `Save ${year} data`}
+                </Button>
+                {revision > 0 && !dirty && (
+                  <Button asChild variant="outline">
+                    <Link href={`/reports?year=${year}`}>
+                      View reports <ArrowRight className="size-4" />
+                    </Link>
+                  </Button>
+                )}
+                <span className="text-sm text-muted-foreground">
+                  {dirty ? "Unsaved changes" : revision ? "All changes saved" : ""}
+                </span>
+                {message && <span className="text-sm text-emerald-800">{message}</span>}
+                {error && <span role="alert" className="text-sm text-destructive">{error}</span>}
+              </div>
+            </>
+          )}
         </>
-      )}
-      {message && (
-        <p role="status" className="text-sm text-emerald-800">
-          {message}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
       )}
     </div>
   )
+}
+
+function toText(values: OpeningEquity): OpeningText {
+  return {
+    capital: String(values.capital),
+    earnings: String(values.earnings),
+    retained: String(values.retained),
+    shareholder: String(values.shareholder),
+  }
 }

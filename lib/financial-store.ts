@@ -58,7 +58,7 @@ export async function financialOwner() {
   return `local:${token}`
 }
 
-function ownerDirectory(owner: string) {
+export function ownerDirectory(owner: string) {
   const root =
     process.env.FINSCOPE_DATA_DIR ||
     path.join(/* turbopackIgnore: true */ process.cwd(), ".data", "financial-records")
