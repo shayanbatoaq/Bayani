@@ -96,9 +96,9 @@ export function VatWorkbench() {
   const rows = useMemo(() => (company ? vatSchedule(company, companyRecords) : []), [company, companyRecords])
 
   if (data.loading) return <Loading />
-  if (!company) return <NoData title="No data" text="Add your company in Profile first." href="/profile" action="Go to Profile" />
+  if (!company) return <NoData title="No data" text="Add your company on the Dashboard first." href="/dashboard" action="Go to Dashboard" />
   if (!company.vat.trn)
-    return <NoData title="No VAT data" text="This company has no VAT registration. Add the VAT TRN and periods in Profile if it is registered." href="/profile" action="Update Profile" />
+    return <NoData title="No VAT data" text="This company has no VAT registration. Add the VAT TRN and periods on the Dashboard if it is registered." href="/dashboard" action="Update company" />
   if (!companyRecords.length)
     return <NoData title="No VAT data" text="No trial balance has been saved yet. Save a year in Data Input to calculate VAT by period." href="/data-input" action="Go to Data Input" />
   if (!rows.length)
@@ -302,9 +302,9 @@ export function CorporateTaxWorkbench() {
   const rows = useMemo(() => (company ? ctSchedule(company, companyRecords) : []), [company, companyRecords])
 
   if (data.loading) return <Loading />
-  if (!company) return <NoData title="No data" text="Add your company in Profile first." href="/profile" action="Go to Profile" />
+  if (!company) return <NoData title="No data" text="Add your company on the Dashboard first." href="/dashboard" action="Go to Dashboard" />
   if (!company.ct.trn)
-    return <NoData title="No corporate tax data" text="This company has no corporate tax registration. Add the CT TRN and tax period in Profile." href="/profile" action="Update Profile" />
+    return <NoData title="No corporate tax data" text="This company has no corporate tax registration. Add the CT TRN and tax period on the Dashboard." href="/dashboard" action="Update company" />
   if (!companyRecords.length)
     return <NoData title="No corporate tax data" text="No trial balance has been saved yet. Save a year in Data Input." href="/data-input" action="Go to Data Input" />
 

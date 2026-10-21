@@ -7,20 +7,21 @@ import {
   ArrowRight,
   Building2,
   CheckCircle2,
+  FileText,
   FileUp,
+  Landmark,
   Loader2,
   Lock,
   Pencil,
-  PenLine,
   Plus,
+  Receipt,
+  Trash2,
   UploadCloud,
   X,
 } from "lucide-react"
 
 import { CompanyForm } from "@/components/company-form"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   companyDocTypes,
   emptyCompanyDraft,
@@ -31,9 +32,7 @@ import {
   type CompanyDocType,
   type CompanyDraft,
 } from "@/lib/company"
-import { countries } from "@/lib/countries"
 import { readDocument, type ReadProgress } from "@/lib/document-reader"
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
 type Extracted = {
@@ -44,18 +43,13 @@ type Extracted = {
   ai: "used" | "unavailable" | "failed"
 }
 
-type Step =
-  | { kind: "idle" }
-  | { kind: "choose" }
-  | { kind: "upload" }
-  | { kind: "review"; draft: CompanyDraft; sources: Record<string, string>; extracted?: Extracted }
-  | { kind: "edit"; company: Company }
+type Mode = { kind: "list" } | { kind: "add" } | { kind: "edit"; company: Company }
 
 export function CompanyManager() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [limit, setLimit] = useState(1)
   const [loading, setLoading] = useState(true)
-  const [step, setStep] = useState<Step>({ kind: "idle" })
+  const [mode, setMode] = useState<Mode>({ kind: "list" })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
@@ -68,7 +62,6 @@ export function CompanyManager() {
         if (!response.ok) throw new Error(data.error)
         setCompanies(data.companies)
         setLimit(data.limit)
-        if (!data.companies.length) setStep({ kind: "choose" })
       })
       .catch((cause) => setError(cause.message))
       .finally(() => setLoading(false))
@@ -76,11 +69,12 @@ export function CompanyManager() {
 
   function startAdd() {
     setNotice("")
+    setError("")
     if (companies.length >= limit) {
       setPaywall(true)
       return
     }
-    setStep({ kind: "choose" })
+    setMode({ kind: "add" })
   }
 
   async function save(draft: CompanyDraft, existing?: Company, documents?: { type: CompanyDocType; filename: string }[]) {
@@ -90,12 +84,7 @@ export function CompanyManager() {
       const response = await fetch("/api/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: existing?.id,
-          revision: existing?.revision,
-          draft,
-          documents,
-        }),
+        body: JSON.stringify({ id: existing?.id, revision: existing?.revision, draft, documents }),
       })
       const data = await response.json()
       if (response.status === 402) {
@@ -103,12 +92,13 @@ export function CompanyManager() {
         throw new Error(data.error)
       }
       if (!response.ok) throw new Error(data.error)
-      setCompanies((current) => [
-        ...current.filter((company) => company.id !== data.company.id),
-        data.company,
-      ])
-      setStep({ kind: "idle" })
-      setNotice(`${data.company.name} saved.`)
+      setCompanies((current) =>
+        existing
+          ? current.map((company) => (company.id === data.company.id ? data.company : company))
+          : [...current, data.company]
+      )
+      setMode({ kind: "list" })
+      setNotice(`${data.company.name} ${existing ? "updated" : "saved"}.`)
       window.scrollTo({ top: 0, behavior: "smooth" })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save the company.")
@@ -117,121 +107,196 @@ export function CompanyManager() {
     }
   }
 
+  async function remove(company: Company) {
+    setError("")
+    setNotice("")
+    const response = await fetch(`/api/companies?id=${company.id}`, { method: "DELETE" })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      setError(data.error ?? "Could not delete the company.")
+      return
+    }
+    setCompanies((current) => current.filter((item) => item.id !== company.id))
+    setNotice(`${company.name} deleted.`)
+  }
+
   if (loading)
     return (
       <p role="status" className="flex items-center gap-2 text-sm">
         <Loader2 className="size-4 animate-spin" />
-        Loading profile...
+        Loading...
       </p>
     )
 
   return (
-    <div className="space-y-10">
-      <AccountDetails />
-
-      <section className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold">Companies</h2>
-            <p className="text-sm text-muted-foreground">
-              {companies.length} of {limit} included in your plan
-            </p>
-          </div>
-          {step.kind === "idle" && (
-            <Button onClick={startAdd} variant={companies.length >= limit ? "outline" : "default"}>
-              {companies.length >= limit ? <Lock className="size-4" /> : <Plus className="size-4" />}
-              New company
-            </Button>
+    <div className="space-y-6">
+      {notice && mode.kind === "list" && (
+        <p role="status" className="flex flex-wrap items-center gap-2 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <CheckCircle2 className="size-4" />
+          {notice}
+          {companies.length > 0 && (
+            <Link href="/data-input" className="ml-auto inline-flex items-center gap-1 font-medium text-primary">
+              Continue to Data Input <ArrowRight className="size-3.5" />
+            </Link>
           )}
-        </div>
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+      {paywall && <Paywall onClose={() => setPaywall(false)} />}
 
-        {notice && (
-          <p role="status" className="flex items-center gap-2 text-sm text-emerald-800">
-            <CheckCircle2 className="size-4" />
-            {notice}
-            {companies.length > 0 && (
-              <Link href="/data-input" className="ml-2 inline-flex items-center gap-1 font-medium text-primary">
-                Continue to Data Input <ArrowRight className="size-3.5" />
-              </Link>
-            )}
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" />
-            {error}
-          </p>
-        )}
-
-        {paywall && <Paywall onClose={() => setPaywall(false)} />}
-
-        {step.kind === "idle" &&
-          companies.map((company) => (
-            <CompanyCard
-              key={company.id}
-              company={company}
-              onEdit={() => setStep({ kind: "edit", company })}
-            />
-          ))}
-
-        {step.kind === "choose" && (
-          <ChooseMethod
-            onUpload={() => setStep({ kind: "upload" })}
-            onManual={() => setStep({ kind: "review", draft: emptyCompanyDraft(), sources: {} })}
-            onCancel={companies.length ? () => setStep({ kind: "idle" }) : undefined}
-          />
-        )}
-
-        {step.kind === "upload" && (
-          <DocumentUpload
-            onCancel={() => setStep({ kind: "choose" })}
-            onExtracted={(extracted) => {
-              const { draft, sources } = mergeExtracted(extracted)
-              setStep({ kind: "review", draft, sources, extracted })
-            }}
-          />
-        )}
-
-        {step.kind === "review" && (
-          <div className="rounded-xl border bg-white p-5 shadow-sm sm:p-8">
-            <h3 className="mb-1 text-lg font-semibold">
-              {step.extracted ? "Review extracted details" : "Enter company details"}
-            </h3>
-            {step.extracted && <ExtractionSummary extracted={step.extracted} />}
-            <div className="mt-6">
-              <CompanyForm
-                initial={step.draft}
-                sources={step.sources}
-                saving={saving}
-                onSave={(draft) => save(draft, undefined, step.extracted?.documents.map(({ type, filename }) => ({ type, filename })))}
-                onCancel={() => setStep(companies.length ? { kind: "idle" } : { kind: "choose" })}
-              />
+      {mode.kind === "list" && (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">Companies</h2>
+              <p className="text-sm text-muted-foreground">
+                {companies.length} of {limit} included in your plan
+              </p>
             </div>
+            {companies.length > 0 && (
+              <Button onClick={startAdd} variant={companies.length >= limit ? "outline" : "default"}>
+                {companies.length >= limit ? <Lock className="size-4" /> : <Plus className="size-4" />}
+                Add company
+              </Button>
+            )}
           </div>
-        )}
+          {companies.length === 0 ? (
+            <button
+              type="button"
+              onClick={startAdd}
+              className="flex w-full flex-col items-center gap-3 rounded-xl border-2 border-dashed bg-white px-6 py-14 text-center transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+            >
+              <span className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                <Plus className="size-7" />
+              </span>
+              <span className="text-lg font-semibold">Add company</span>
+              <span className="max-w-md text-sm text-muted-foreground">
+                Upload the Trade License, MOA, VAT Certificate and Corporate Tax Certificate. The details are read for you to check and save.
+              </span>
+            </button>
+          ) : (
+            companies.map((company) => (
+              <CompanyCard
+                key={company.id}
+                company={company}
+                onEdit={() => {
+                  setNotice("")
+                  setMode({ kind: "edit", company })
+                }}
+                onDelete={() => remove(company)}
+              />
+            ))
+          )}
+        </section>
+      )}
 
-        {step.kind === "edit" && (
-          <div className="rounded-xl border bg-white p-5 shadow-sm sm:p-8">
-            <h3 className="mb-6 text-lg font-semibold">Edit {step.company.name}</h3>
-            <CompanyForm
-              initial={step.company}
-              saving={saving}
-              onSave={(draft) => save(draft, step.company)}
-              onCancel={() => setStep({ kind: "idle" })}
-              submitLabel="Save changes"
-            />
-          </div>
-        )}
-      </section>
+      {mode.kind !== "list" && (
+        <CompanyEditor
+          key={mode.kind === "edit" ? mode.company.id : "new"}
+          company={mode.kind === "edit" ? mode.company : undefined}
+          saving={saving}
+          onSave={(draft, documents) => save(draft, mode.kind === "edit" ? mode.company : undefined, documents)}
+          onCancel={() => {
+            setError("")
+            setMode({ kind: "list" })
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function mergeExtracted(extracted: Extracted) {
-  const base = emptyCompanyDraft()
+/** Four document windows, an Upload button that fills the details below, and Save. */
+function CompanyEditor({
+  company,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  company?: Company
+  saving: boolean
+  onSave: (draft: CompanyDraft, documents?: { type: CompanyDocType; filename: string }[]) => void
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState<CompanyDraft>(() => (company ? toDraft(company) : emptyCompanyDraft()))
+  const [sources, setSources] = useState<Record<string, string>>({})
+  const [extracted, setExtracted] = useState<Extracted | null>(null)
+  const [version, setVersion] = useState(0)
+  return (
+    <section className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">{company ? `Edit ${company.name}` : "Add company"}</h2>
+          <p className="text-sm text-muted-foreground">
+            Upload the documents to fill the details automatically, or type them in below.
+          </p>
+        </div>
+        <Button variant="ghost" onClick={onCancel} disabled={saving}>
+          <X className="size-4" />
+          Cancel
+        </Button>
+      </div>
+
+      <DocumentUpload
+        onExtracted={(result) => {
+          const merged = mergeExtracted(result, company ? toDraft(company) : emptyCompanyDraft())
+          setDraft(merged.draft)
+          setSources(merged.sources)
+          setExtracted(result)
+          setVersion((v) => v + 1)
+        }}
+      />
+
+      <div className="rounded-xl border bg-white p-5 shadow-sm sm:p-8">
+        <StepTitle n={2} title="Company details" text="Check every field, correct anything that is wrong, then save." />
+        {extracted && <ExtractionSummary extracted={extracted} />}
+        <div className="mt-6">
+          <CompanyForm
+            key={version}
+            initial={draft}
+            sources={sources}
+            saving={saving}
+            onSave={(value) => onSave(value, extracted?.documents.map(({ type, filename }) => ({ type, filename })))}
+            onCancel={onCancel}
+            submitLabel={company ? "Save changes" : "Save company"}
+          />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function StepTitle({ n, title, text }: { n: number; title: string; text: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+        {n}
+      </span>
+      <div>
+        <h3 className="text-lg font-semibold">{title}</h3>
+        <p className="text-sm text-muted-foreground">{text}</p>
+      </div>
+    </div>
+  )
+}
+
+function toDraft(company: Company): CompanyDraft {
+  const base = emptyCompanyDraft() as unknown as Record<string, unknown>
+  const source = company as unknown as Record<string, unknown>
+  const draft: Record<string, unknown> = {}
+  for (const key of Object.keys(base)) draft[key] = source[key] ?? base[key]
+  return draft as unknown as CompanyDraft
+}
+
+function mergeExtracted(extracted: Extracted, base: CompanyDraft) {
   const sources: Record<string, string> = {}
   const f = extracted.fields
-  const draft: CompanyDraft = { ...base, vat: { ...base.vat }, ct: { ...base.ct } }
+  const draft: CompanyDraft = { ...base, partners: [...base.partners], vat: { ...base.vat }, ct: { ...base.ct } }
   const from = (path: string) => extracted.sources[path] ?? "document"
   for (const key of ["name", "legalForm", "authority", "emirate", "licenseNumber", "licenseIssueDate", "businessActivity", "manager"] as const) {
     const value = f[key]
@@ -259,9 +324,9 @@ function mergeExtracted(extracted: Extracted) {
 
 const kindLabel: Record<string, string> = {
   tradeLicense: "Trade License",
-  moa: "MOA / Articles",
-  vatCertificate: "VAT certificate",
-  ctCertificate: "Corporate tax certificate",
+  moa: "MOA",
+  vatCertificate: "VAT Certificate",
+  ctCertificate: "Corporate Tax Certificate",
   incorporation: "Certificate of incorporation",
   unknown: "Not recognised",
 }
@@ -305,75 +370,23 @@ function ExtractionSummary({ extracted }: { extracted: Extracted }) {
   )
 }
 
-function ChooseMethod({
-  onUpload,
-  onManual,
-  onCancel,
-}: {
-  onUpload: () => void
-  onManual: () => void
-  onCancel?: () => void
-}) {
-  const options = [
-    {
-      title: "Upload documents",
-      text: "Trade License, MOA / Articles, VAT and corporate tax certificates. Details are read automatically for you to review.",
-      icon: UploadCloud,
-      action: onUpload,
-      tone: "bg-emerald-50 text-emerald-800",
-    },
-    {
-      title: "Enter details manually",
-      text: "Type the company, partner and tax registration details yourself.",
-      icon: PenLine,
-      action: onManual,
-      tone: "bg-amber-50 text-amber-800",
-    },
-  ]
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        {options.map(({ title, text, icon: Icon, action, tone }) => (
-          <button
-            key={title}
-            type="button"
-            onClick={action}
-            className="group flex min-h-40 items-start gap-5 rounded-xl border bg-white p-6 text-left shadow-sm transition-[border-color,box-shadow] hover:border-primary/60 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-          >
-            <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-lg", tone)}>
-              <Icon className="size-6" strokeWidth={1.7} />
-            </span>
-            <span>
-              <span className="block text-lg font-semibold">{title}</span>
-              <span className="mt-2 block text-sm leading-6 text-muted-foreground">{text}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      {onCancel && (
-        <Button variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      )}
-    </div>
-  )
-}
 
-function DocumentUpload({
-  onExtracted,
-  onCancel,
-}: {
-  onExtracted: (extracted: Extracted) => void
-  onCancel: () => void
-}) {
+function DocumentUpload({ onExtracted }: { onExtracted: (extracted: Extracted) => void }) {
   const [files, setFiles] = useState<Partial<Record<CompanyDocType, File>>>({})
   const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
   const [progress, setProgress] = useState<ReadProgress | null>(null)
   const [error, setError] = useState("")
+  const [over, setOver] = useState<CompanyDocType | null>(null)
   const inputs = useRef<Partial<Record<CompanyDocType, HTMLInputElement | null>>>({})
   const count = Object.values(files).filter(Boolean).length
 
-  async function extract() {
+  function choose(key: CompanyDocType, file: File | undefined) {
+    setDone(false)
+    setFiles((current) => ({ ...current, [key]: file }))
+  }
+
+  async function upload() {
     setBusy(true)
     setError("")
     try {
@@ -392,6 +405,7 @@ function DocumentUpload({
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       onExtracted(data)
+      setDone(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The documents could not be read.")
     } finally {
@@ -402,40 +416,44 @@ function DocumentUpload({
 
   return (
     <div className="space-y-5 rounded-xl border bg-white p-5 shadow-sm sm:p-8">
-      <div>
-        <h3 className="text-lg font-semibold">Upload company documents</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          PDF or image, up to 25 MB each. Upload what you have; missing details can be typed in next.
-        </p>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <StepTitle n={1} title="Company documents" text="PDF or image, up to 25 MB each. Add what you have, then press Upload." />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {companyDocTypes.map(({ key, label }) => {
           const file = files[key]
           return (
             <div
               key={key}
+              onDragOver={(event) => {
+                event.preventDefault()
+                setOver(key)
+              }}
+              onDragLeave={() => setOver(null)}
+              onDrop={(event) => {
+                event.preventDefault()
+                setOver(null)
+                choose(key, event.dataTransfer.files?.[0])
+              }}
               className={cn(
-                "flex min-h-24 items-center gap-4 rounded-lg border border-dashed p-4",
-                file && "border-solid border-emerald-600 bg-emerald-50/50"
+                "relative flex min-h-44 flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-4 text-center transition-colors",
+                file ? "border-solid border-emerald-600 bg-emerald-50/60" : "bg-secondary/40",
+                over === key && "border-primary bg-primary/5"
               )}
             >
-              <FileUp className={cn("size-6 shrink-0", file ? "text-emerald-700" : "text-muted-foreground")} />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{label}</p>
-                <p className="truncate text-xs text-muted-foreground">{file ? file.name : "Not uploaded"}</p>
-              </div>
               {file ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Remove ${label}`}
-                  onClick={() => setFiles((current) => ({ ...current, [key]: undefined }))}
-                >
+                <FileText className="size-8 text-emerald-700" strokeWidth={1.6} />
+              ) : (
+                <FileUp className="size-8 text-muted-foreground" strokeWidth={1.6} />
+              )}
+              <p className="font-semibold">{label}</p>
+              <p className="w-full truncate text-xs text-muted-foreground">{file ? file.name : "Drop file here or browse"}</p>
+              {file ? (
+                <Button variant="ghost" size="sm" aria-label={`Remove ${label}`} onClick={() => choose(key, undefined)} disabled={busy}>
                   <X className="size-4" />
+                  Remove
                 </Button>
               ) : (
-                <Button variant="outline" size="sm" onClick={() => inputs.current[key]?.click()}>
-                  Choose
+                <Button variant="outline" size="sm" onClick={() => inputs.current[key]?.click()} disabled={busy}>
+                  Browse
                 </Button>
               )}
               <input
@@ -448,7 +466,7 @@ function DocumentUpload({
                 accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
                 onChange={(event) => {
                   const chosen = event.target.files?.[0]
-                  if (chosen) setFiles((current) => ({ ...current, [key]: chosen }))
+                  if (chosen) choose(key, chosen)
                   event.target.value = ""
                 }}
               />
@@ -475,23 +493,26 @@ function DocumentUpload({
               <div className="h-full bg-emerald-600 transition-all" style={{ width: `${(progress.page / progress.pages) * 100}%` }} />
             </div>
           )}
-          <p className="text-xs text-muted-foreground">Scanned pages take a few seconds each. Documents stay on this device while they are read.</p>
         </div>
       )}
-      <div className="flex flex-wrap gap-3">
-        <Button onClick={extract} disabled={!count || busy}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
-          {busy ? "Reading documents..." : `Extract details from ${count || ""} document${count === 1 ? "" : "s"}`}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={upload} disabled={!count || busy}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <UploadCloud className="size-4" />}
+          {busy ? "Reading documents..." : "Upload"}
         </Button>
-        <Button variant="outline" onClick={onCancel} disabled={busy}>
-          Back
-        </Button>
+        {done && !busy && (
+          <p className="flex items-center gap-2 text-sm text-emerald-800">
+            <CheckCircle2 className="size-4" /> Details filled in below. Please check them.
+          </p>
+        )}
       </div>
     </div>
   )
 }
 
-function CompanyCard({ company, onEdit }: { company: Company; onEdit: () => void }) {
+function CompanyCard({ company, onEdit, onDelete }: { company: Company; onEdit: () => void; onDelete: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const facts: [string, string][] = [
     ["Authority", [company.authority, company.emirate].filter(Boolean).join(", ")],
     ["License", [company.licenseNumber, company.licenseIssueDate && `issued ${formatLongDate(company.licenseIssueDate)}`].filter(Boolean).join(" · ")],
@@ -510,6 +531,12 @@ function CompanyCard({ company, onEdit }: { company: Company; onEdit: () => void
         : "Not registered",
     ],
   ]
+  const links = [
+    { href: "/data-input", label: "Data Input", icon: UploadCloud },
+    { href: "/reports", label: "Reports", icon: FileText },
+    { href: "/vat", label: "VAT", icon: Receipt },
+    { href: "/corporate-tax", label: "Corporate Tax", icon: Landmark },
+  ]
   return (
     <article className="rounded-xl border bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -522,11 +549,42 @@ function CompanyCard({ company, onEdit }: { company: Company; onEdit: () => void
             <p className="text-sm text-muted-foreground">{company.legalForm}</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={onEdit}>
-          <Pencil className="size-4" />
-          Edit
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={onEdit}>
+            <Pencil className="size-4" />
+            Edit
+          </Button>
+          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirming(true)}>
+            <Trash2 className="size-4" />
+            Delete
+          </Button>
+        </div>
       </div>
+      {confirming && (
+        <div role="alertdialog" aria-label="Confirm delete" className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <AlertCircle className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            Delete {company.name} and all its saved trial balances? This cannot be undone.
+          </span>
+          <Button
+            size="sm"
+            className="bg-red-700 text-white hover:bg-red-800"
+            disabled={deleting}
+            onClick={async () => {
+              setDeleting(true)
+              await onDelete()
+              setDeleting(false)
+              setConfirming(false)
+            }}
+          >
+            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            Delete company
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setConfirming(false)} disabled={deleting}>
+            Keep
+          </Button>
+        </div>
+      )}
       <dl className="mt-5 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
         {facts.map(([label, value]) => (
           <div key={label} className="min-w-0">
@@ -539,6 +597,16 @@ function CompanyCard({ company, onEdit }: { company: Company; onEdit: () => void
           <dd className="mt-0.5 break-words">{company.businessActivity}</dd>
         </div>
       </dl>
+      <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">
+        {links.map(({ href, label, icon: Icon }) => (
+          <Button key={href} asChild variant="secondary" size="sm">
+            <Link href={href}>
+              <Icon className="size-4" />
+              {label}
+            </Link>
+          </Button>
+        ))}
+      </div>
     </article>
   )
 }
@@ -563,75 +631,5 @@ function Paywall({ onClose }: { onClose: () => void }) {
         <X className="size-4" />
       </Button>
     </div>
-  )
-}
-
-function AccountDetails() {
-  const supabase = getSupabaseBrowserClient()
-  const [state, setState] = useState<{ email: string; name: string; country: string } | null>(null)
-  const [saved, setSaved] = useState(false)
-  useEffect(() => {
-    supabase?.auth.getUser().then(({ data }: { data: { user: { email?: string; user_metadata?: Record<string, string> } | null } }) => {
-      if (!data.user) return
-      const meta = data.user.user_metadata ?? {}
-      setState({
-        email: data.user.email ?? "",
-        name: meta.name ?? meta.full_name ?? "",
-        country: meta.country ?? "",
-      })
-    })
-  }, [supabase])
-  if (!supabase)
-    return (
-      <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Demo workspace: sign-in is not configured, so data is kept in this browser&apos;s workspace on the server.
-      </p>
-    )
-  if (!state) return null
-  return (
-    <section className="grid gap-4 rounded-xl border bg-white p-5 shadow-sm sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-      <div className="space-y-2">
-        <Label htmlFor="account-name">Name</Label>
-        <Input
-          id="account-name"
-          value={state.name}
-          onChange={(e) => {
-            setSaved(false)
-            setState({ ...state, name: e.target.value })
-          }}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="account-email">Email</Label>
-        <Input id="account-email" value={state.email} disabled />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="account-country">Country</Label>
-        <select
-          id="account-country"
-          className="h-9 w-full rounded-md border bg-white px-2 text-sm"
-          value={state.country}
-          onChange={(e) => {
-            setSaved(false)
-            setState({ ...state, country: e.target.value })
-          }}
-        >
-          <option value="">Select country</option>
-          {countries.map((name) => (
-            <option key={name}>{name}</option>
-          ))}
-        </select>
-      </div>
-      <Button
-        variant="outline"
-        onClick={async () => {
-          const { error } = await supabase.auth.updateUser({ data: { name: state.name, country: state.country } })
-          setSaved(!error)
-        }}
-      >
-        {saved ? <CheckCircle2 className="size-4" /> : null}
-        {saved ? "Saved" : "Save"}
-      </Button>
-    </section>
   )
 }

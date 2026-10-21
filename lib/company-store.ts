@@ -1,6 +1,6 @@
 import "server-only"
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import {
   companyDraftSchema,
@@ -111,4 +111,22 @@ export async function updateCompanyExtras(
     ...extras,
     updatedAt: new Date().toISOString(),
   })
+}
+
+
+/** Remove a company together with every year of figures saved for it. */
+export async function deleteCompany(owner: string, id: string) {
+  const existing = await getCompany(owner, id)
+  if (!existing) throw new FinancialError("Company not found.", 404)
+  await rm(path.join(directory(owner), `${id}.json`), { force: true })
+  let files: string[] = []
+  try {
+    files = await readdir(ownerDirectory(owner))
+  } catch {}
+  await Promise.all(
+    files
+      .filter((file) => file.startsWith(`${id}-`) && file.endsWith(".json"))
+      .map((file) => rm(path.join(ownerDirectory(owner), file), { force: true }))
+  )
+  return existing
 }

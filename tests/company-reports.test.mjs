@@ -177,18 +177,28 @@ test("corporate tax: regime start, 9% above 375k, entertainment add-back, SBR", 
   assert.equal(early[0].status, "Before CT regime")
 })
 
-test("report model: comparatives, dynamic notes, no audit wording", () => {
+test("report model: fixed schedules, comparatives, footing, no audit wording", () => {
   const model = buildReport(company, [y2024, y2025], 2025)
   assert.equal(model.priorYear, 2024)
   assert.equal(model.periodEndText, "31 December 2025")
-  const totalAssets = model.bs.find((row) => row.label === "Total assets")
+  const totalAssets = model.bs.find((row) => row.label === "TOTAL ASSETS")
   assert.equal(totalAssets.current, y2025.statements.bs.find((l) => l.row === 25).amount)
   assert.equal(totalAssets.prior, y2024.statements.bs.find((l) => l.row === 25).amount)
-  // Notes are numbered consecutively from 5 and BS notes point at them.
-  model.notes.forEach((note, i) => assert.equal(note.number, 5 + i))
-  const ppeNote = model.notes.find((note) => note.title === "Property, plant and equipment")
-  assert.equal(model.bs.find((row) => row.label === "Property, plant and equipment").note, ppeNote.number)
-  assert.equal(ppeNote.rows.at(-1).current, 375)
+  // Schedules are numbered 1..19 in a fixed order and the statements point at them.
+  assert.deepEqual(model.schedules.map((item) => item.number), Array.from({ length: 19 }, (_, i) => i + 1))
+  const ppe = model.schedules.find((item) => item.title === "Property, plant and equipment")
+  assert.equal(model.bs.find((row) => row.label === "Property, plant and equipment").note, ppe.number)
+  assert.equal(ppe.rows.at(-1).current, 375)
+  const cash = model.schedules.find((item) => item.number === 7)
+  assert.equal(cash.rows.at(-1).current, model.bs.find((row) => row.label === "Cash and cash equivalents").current)
+  // Each equity column foots: opening + movements = closing.
+  for (const table of model.equity)
+    for (let col = 0; col < 5; col++) {
+      const body = table.lines.slice(0, -1).reduce((sum, line) => sum + line.values[col], 0)
+      assert.ok(Math.abs(body - table.lines.at(-1).values[col]) < 0.01)
+    }
+  // The current year opens with the prior year's closing balances.
+  assert.deepEqual(model.equity[1].lines[0].values, model.equity[0].lines.at(-1).values)
   const text = JSON.stringify(model).toLowerCase()
   assert.doesNotMatch(text, /audit/)
   assert.equal(model.cashFlow.at(-1).current, 139599.88)

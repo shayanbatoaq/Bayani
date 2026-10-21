@@ -209,5 +209,5 @@ export function AuthPanel({ mode }: { mode: "signup" | "login" }) {
 }
 
 function safeNext(value: string | null) {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/profile"
+  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/dashboard"
 }

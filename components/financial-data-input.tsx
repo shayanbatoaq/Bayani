@@ -195,11 +195,11 @@ export function FinancialDataInput() {
       <div className="space-y-4 rounded-xl border bg-white p-10 text-center">
         <Building2 className="mx-auto size-9 text-muted-foreground" />
         <h2 className="text-xl font-semibold">Add your company first</h2>
-        <p className="text-sm text-muted-foreground">Data input is saved against the company in your profile.</p>
+        <p className="text-sm text-muted-foreground">Data input is saved against the company on your dashboard.</p>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button asChild>
-          <Link href="/profile">
-            Go to Profile <ArrowRight className="size-4" />
+          <Link href="/dashboard">
+            Go to Dashboard <ArrowRight className="size-4" />
           </Link>
         </Button>
       </div>

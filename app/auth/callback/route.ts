@@ -5,8 +5,8 @@ import { getSupabaseServerClient } from "@/lib/supabase/server"
 export async function GET(request: Request) {
   const url = new URL(request.url)
   const code = url.searchParams.get("code")
-  const requested = url.searchParams.get("next") ?? "/profile"
-  const next = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/profile"
+  const requested = url.searchParams.get("next") ?? "/dashboard"
+  const next = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard"
   const supabase = await getSupabaseServerClient()
   if (code && supabase) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)

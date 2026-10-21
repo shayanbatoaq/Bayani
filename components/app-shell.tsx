@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  Building2,
+  LayoutDashboard,
   FileText,
   Landmark,
   LogOut,
@@ -26,7 +26,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
 const navItems = [
-  { href: "/profile", label: "Profile", icon: Building2 },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/data-input", label: "Data Input", icon: Upload },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/vat", label: "VAT", icon: Receipt },
@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-border/80 bg-card/92 backdrop-blur-xl lg:flex lg:flex-col">
         <div className="flex h-20 items-center px-6">
-          <BrandLogo href="/profile" imageClassName="h-11" priority />
+          <BrandLogo href="/dashboard" imageClassName="h-11" priority />
         </div>
         <Separator />
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
@@ -96,7 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border/80 bg-background/88 px-4 backdrop-blur lg:hidden">
-        <BrandLogo href="/profile" imageClassName="h-9" />
+        <BrandLogo href="/dashboard" imageClassName="h-9" />
         <Sheet>
           <SheetTrigger asChild>
             <Button size="icon" variant="outline" aria-label="Open navigation">
@@ -106,7 +106,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SheetContent side="left" className="w-[320px]">
             <SheetHeader>
               <SheetTitle>
-                <BrandLogo href="/profile" imageClassName="h-10" />
+                <BrandLogo href="/dashboard" imageClassName="h-10" />
               </SheetTitle>
             </SheetHeader>
             <div className="overflow-y-auto px-3 pb-6">

@@ -1,10 +1,7 @@
-import { Suspense } from "react"
-import Link from "next/link"
 import { Building2, FileText, Landmark, Receipt, Upload } from "lucide-react"
 
-import { AuthPanel } from "@/components/auth-panel"
+import { QuickLogin } from "@/components/quick-login"
 import { BrandLogo } from "@/components/brand-logo"
-import { Button } from "@/components/ui/button"
 
 const steps = [
   { icon: Building2, title: "Add your company", text: "Upload the trade license, MOA and tax certificates. Details are read automatically." },
@@ -19,9 +16,7 @@ export default function Home() {
     <main className="min-h-screen">
       <header className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <BrandLogo priority imageClassName="h-11" />
-        <Button asChild variant="ghost">
-          <Link href="/login">Log in</Link>
-        </Button>
+        <QuickLogin size="default" />
       </header>
 
       <section className="mx-auto grid max-w-7xl gap-12 px-4 pb-20 pt-6 sm:px-6 lg:grid-cols-[1fr_28rem] lg:items-start lg:gap-16 lg:px-8 lg:pt-14">
@@ -52,10 +47,14 @@ export default function Home() {
             ))}
           </ol>
         </div>
-        <div id="sign-up" className="flex justify-center lg:sticky lg:top-8">
-          <Suspense>
-            <AuthPanel mode="signup" />
-          </Suspense>
+        <div className="flex justify-center lg:sticky lg:top-8">
+          <div className="w-full max-w-md rounded-xl border bg-white p-8 shadow-sm">
+            <h2 className="text-xl font-semibold">Get started</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Log in to your dashboard, add your company from its documents and start preparing statements.
+            </p>
+            <QuickLogin className="mt-6 w-full" />
+          </div>
         </div>
       </section>
 

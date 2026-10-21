@@ -3,9 +3,9 @@ import { scheduleLines } from "./financial-statements"
 
 export const companyDocTypes = [
   { key: "tradeLicense", label: "Trade License" },
-  { key: "moa", label: "MOA / Articles" },
-  { key: "vatCertificate", label: "VAT certificate" },
-  { key: "ctCertificate", label: "Corporate tax certificate" },
+  { key: "moa", label: "MOA" },
+  { key: "vatCertificate", label: "VAT Certificate" },
+  { key: "ctCertificate", label: "Corporate Tax Certificate" },
 ] as const
 export type CompanyDocType = (typeof companyDocTypes)[number]["key"]
 

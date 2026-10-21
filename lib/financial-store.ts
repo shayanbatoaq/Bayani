@@ -31,10 +31,12 @@ export class FinancialError extends Error {
 export async function financialOwner() {
   const supabase = await getSupabaseServerClient()
   if (supabase) {
-    const { data, error } = await supabase.auth.getUser()
-    if (error || !data.user)
+    const { data } = await supabase.auth.getUser()
+    if (data.user) return `user:${data.user.id}`
+    // One-click login: without a signed-in user, fall back to the browser workspace
+    // unless sign-in has been made mandatory.
+    if (process.env.FINSCOPE_REQUIRE_LOGIN === "true")
       throw new FinancialError("Please sign in to access financial data.", 401)
-    return `user:${data.user.id}`
   }
   if (
     process.env.NODE_ENV === "production" &&

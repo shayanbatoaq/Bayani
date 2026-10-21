@@ -1,42 +1,56 @@
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
-import { reportIndex, type NoteBlock, type ReportModel, type Row } from "@/lib/report-model"
+import path from "node:path"
+import { Document, Font, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+import type { Style } from "@react-pdf/stylesheet"
+import { reportIndex, type EquityTable, type IndexKey, type ReportModel, type Row, type Schedule } from "@/lib/report-model"
+
+/* Caladea is metric-compatible with Cambria; Carlito with Calibri (page numbers). Both OFL, bundled in assets/fonts. */
+const fontDir = path.join(/* turbopackIgnore: true */ process.cwd(), "assets", "fonts")
+Font.register({
+  family: "Serif",
+  fonts: [
+    { src: path.join(fontDir, "Caladea-Regular.ttf") },
+    { src: path.join(fontDir, "Caladea-Bold.ttf"), fontWeight: "bold" },
+    { src: path.join(fontDir, "Caladea-Italic.ttf"), fontStyle: "italic" },
+    { src: path.join(fontDir, "Caladea-BoldItalic.ttf"), fontWeight: "bold", fontStyle: "italic" },
+  ],
+})
+Font.register({ family: "Sans", src: path.join(fontDir, "Carlito-Regular.ttf") })
+Font.registerHyphenationCallback((word) => [word])
 
 /** Page numbers captured while laying out, used to fill the index on a second pass. */
-export type PageMarks = Partial<Record<(typeof reportIndex)[number] | "end", number>>
+export type PageMarks = Partial<Record<IndexKey | "end", number>>
+type OnPage = (name: keyof PageMarks, page: number) => void
 
-const ink = "#1b2a36"
-const rule = "#8a98a3"
-const styles = StyleSheet.create({
-  page: { paddingTop: 54, paddingBottom: 64, paddingHorizontal: 56, fontFamily: "Times-Roman", fontSize: 10, color: ink, lineHeight: 1.35 },
-  landscape: { paddingTop: 44, paddingBottom: 56, paddingHorizontal: 48, fontFamily: "Times-Roman", fontSize: 9.5, color: ink, lineHeight: 1.3 },
-  head: { marginBottom: 18 },
-  company: { fontFamily: "Times-Bold", fontSize: 13 },
-  title: { fontFamily: "Times-Bold", fontSize: 10.5, marginTop: 3, textTransform: "uppercase" },
-  colHead: { flexDirection: "row", borderBottomWidth: 0.6, borderBottomColor: rule, paddingBottom: 3, marginBottom: 4, fontFamily: "Times-Bold" },
-  row: { flexDirection: "row", paddingVertical: 2.2 },
-  label: { flex: 1, paddingRight: 8 },
-  note: { width: 34, textAlign: "center" },
-  amount: { width: 92, textAlign: "right" },
-  heading: { fontFamily: "Times-Bold", marginTop: 7 },
-  subtotal: { fontFamily: "Times-Bold", borderTopWidth: 0.6, borderTopColor: rule, marginBottom: 3 },
-  total: { fontFamily: "Times-Bold", borderTopWidth: 0.6, borderTopColor: ink, borderBottomWidth: 1.8, borderBottomColor: ink, marginTop: 2, marginBottom: 6 },
-  footer: { position: "absolute", bottom: 26, left: 56, right: 56, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: "#5c6d78" },
-  integral: { marginTop: 18, fontSize: 9, fontFamily: "Times-Italic" },
-  sign: { marginTop: 36, width: 200 },
-  signLine: { borderTopWidth: 0.6, borderTopColor: ink, marginTop: 34, paddingTop: 3 },
-  noteTitle: { fontFamily: "Times-Bold", marginTop: 12, marginBottom: 4 },
-  para: { marginBottom: 5, textAlign: "justify" },
+const black = "#000000"
+const NOTE_W = 40
+const AMOUNT_W = 84
+const GAP = 7
+
+const s = StyleSheet.create({
+  page: { paddingTop: 60, paddingBottom: 58, paddingHorizontal: 58, fontFamily: "Serif", fontSize: 9.5, color: black, lineHeight: 1.18 },
+  bold: { fontWeight: "bold" },
+  company: { fontWeight: "bold", fontSize: 10.5 },
+  title: { fontWeight: "bold", fontSize: 10.5, marginTop: 2 },
+  pageNumber: { position: "absolute", bottom: 30, left: 0, right: 0, textAlign: "center", fontFamily: "Sans", fontSize: 11 },
+  row: { flexDirection: "row", alignItems: "center" },
+  label: { flex: 1, paddingRight: 6, paddingVertical: 1.45 },
+  note: { width: NOTE_W, textAlign: "center", paddingVertical: 1.45 },
+  amountCell: { width: AMOUNT_W, marginLeft: GAP },
+  amountText: { textAlign: "right", paddingVertical: 1.45, paddingRight: 3 },
+  yearBox: { width: AMOUNT_W, marginLeft: GAP, backgroundColor: black, paddingVertical: 6 },
+  yearText: { color: "#ffffff", fontWeight: "bold", textAlign: "center", fontSize: 9 },
+  integral: { marginTop: 10, fontSize: 9 },
+  signature: { marginTop: 10 },
 })
 
+/** Whole currency units, negatives in brackets, nil as a dash. */
 const fmt = (value: number | null | undefined) => {
   if (value === null || value === undefined) return ""
-  const rounded = Math.round(value * 100) / 100
+  const rounded = Math.round(value)
   if (rounded === 0) return "-"
-  const text = Math.abs(rounded).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const text = Math.abs(rounded).toLocaleString("en-US")
   return rounded < 0 ? `(${text})` : text
 }
-
-type OnPage = (name: keyof PageMarks, page: number) => void
 
 function Mark({ onPage, name }: { onPage?: OnPage; name: keyof PageMarks }) {
   return (
@@ -49,273 +63,310 @@ function Mark({ onPage, name }: { onPage?: OnPage; name: keyof PageMarks }) {
   )
 }
 
-function Footer({ model }: { model: ReportModel }) {
+/** Cover and index are unnumbered; the statements start at page 1. */
+function PageNumber() {
+  return <Text style={s.pageNumber} fixed render={({ pageNumber }) => (pageNumber > 2 ? `${pageNumber - 2}` : "")} />
+}
+
+function Heading({ model, title }: { model: ReportModel; title: string }) {
   return (
-    <View style={styles.footer} fixed>
-      <Text>{model.companyName}</Text>
-      <Text render={({ pageNumber }) => `${pageNumber - 2}`} />
+    <View style={{ marginBottom: 10 }}>
+      <Text style={s.company}>{model.companyName}</Text>
+      <Text style={s.title}>{title}</Text>
     </View>
   )
 }
 
-function Header({ model, title }: { model: ReportModel; title: string }) {
+/** Note column, black year boxes and the currency line beneath, as in the reference layout. */
+function YearHeader({ model, withNote = true }: { model: ReportModel; withNote?: boolean }) {
+  const years = [model.year, ...(model.priorYear ? [model.priorYear] : [])]
   return (
-    <View style={styles.head} fixed>
-      <Text style={styles.company}>{model.companyName}</Text>
-      <Text style={styles.title}>{title}</Text>
+    <View style={{ marginBottom: 4 }} fixed>
+      <View style={[s.row, { alignItems: "flex-end" }]}>
+        <View style={{ flex: 1, borderBottomWidth: 2.4, borderBottomColor: black }} />
+        <View style={{ width: NOTE_W, borderBottomWidth: 2.4, borderBottomColor: black, paddingBottom: 2 }}>
+          {withNote && <Text style={[s.bold, { textAlign: "center" }]}>Note</Text>}
+        </View>
+        {years.map((year) => (
+          <View key={year} style={s.yearBox}>
+            <Text style={s.yearText}>{year}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={[s.row, { marginTop: 3 }]}>
+        <View style={{ flex: 1 }} />
+        <View style={{ width: NOTE_W }} />
+        {years.map((year) => (
+          <Text key={year} style={[s.bold, { width: AMOUNT_W, marginLeft: GAP, textAlign: "center" }]}>
+            {model.currency}
+          </Text>
+        ))}
+      </View>
     </View>
   )
 }
 
-function Columns({ model, withNote = true }: { model: ReportModel; withNote?: boolean }) {
+function Amount({ value, kind }: { value: number | null; kind?: Row["kind"] }) {
+  if (kind === "subtotal")
+    return (
+      <View style={[s.amountCell, { borderTopWidth: 0.8, borderTopStyle: "dashed", borderBottomWidth: 0.8, borderBottomStyle: "dashed", marginTop: 2, marginBottom: 3 }]}>
+        <Text style={[s.amountText, s.bold]}>{fmt(value)}</Text>
+      </View>
+    )
+  if (kind === "total")
+    return (
+      <View style={[s.amountCell, { borderTopWidth: 0.9, borderBottomWidth: 0.9, paddingBottom: 1.6, marginTop: 2, marginBottom: 3 }]}>
+        <View style={{ borderBottomWidth: 0.9 }}>
+          <Text style={[s.amountText, s.bold]}>{fmt(value)}</Text>
+        </View>
+      </View>
+    )
   return (
-    <View style={styles.colHead} fixed>
-      <Text style={styles.label} />
-      {withNote && <Text style={styles.note}>Note</Text>}
-      <Text style={styles.amount}>
-        {model.year}
-        {"\n"}
-        {model.currency}
-      </Text>
-      {model.priorYear && (
-        <Text style={styles.amount}>
-          {model.priorYear}
-          {"\n"}
-          {model.currency}
-        </Text>
+    <View style={s.amountCell}>
+      <Text style={s.amountText}>{kind === "heading" && value === null ? "" : fmt(value)}</Text>
+    </View>
+  )
+}
+
+function StatementRow({ row, model, indent = 0, withNote = true }: { row: Row; model: ReportModel; indent?: number; withNote?: boolean }) {
+  if (row.kind === "spacer") return <View style={{ height: 4 }} />
+  const strong = Boolean(row.kind)
+  const labelStyle: Style[] = [s.label, { marginLeft: indent }]
+  if (strong) labelStyle.push(s.bold)
+  if (row.kind === "section") labelStyle.push({ paddingTop: 6 })
+  if (row.kind === "heading") labelStyle.push({ paddingTop: 5 })
+  if (row.kind === "total") labelStyle.push({ borderTopWidth: 1.4, borderBottomWidth: 1.4, marginTop: 2, marginBottom: 3 })
+  const showAmounts = row.kind !== "section" && !(row.kind === "heading" && row.current === null)
+  return (
+    <View style={s.row} wrap={false}>
+      <Text style={labelStyle}>{row.label}</Text>
+      <Text style={[s.note, strong ? s.bold : {}]}>{withNote && row.note ? String(row.note) : ""}</Text>
+      {showAmounts ? (
+        <>
+          <Amount value={row.current} kind={row.kind} />
+          {model.priorYear && <Amount value={row.prior} kind={row.kind} />}
+        </>
+      ) : (
+        <>
+          <View style={s.amountCell} />
+          {model.priorYear && <View style={s.amountCell} />}
+        </>
       )}
     </View>
   )
 }
 
-function Rows({ rows, model, withNote = true }: { rows: Row[]; model: ReportModel; withNote?: boolean }) {
-  return (
-    <>
-      {rows.map((row, i) => {
-        const style = [styles.row, row.kind === "heading" ? styles.heading : row.kind === "subtotal" ? styles.subtotal : row.kind === "total" ? styles.total : {}]
-        return (
-          <View key={i} style={style} wrap={false}>
-            <Text style={styles.label}>{row.label}</Text>
-            {withNote && <Text style={styles.note}>{row.note ?? ""}</Text>}
-            <Text style={styles.amount}>{row.kind === "heading" ? "" : fmt(row.current)}</Text>
-            {model.priorYear && <Text style={styles.amount}>{row.kind === "heading" ? "" : fmt(row.prior)}</Text>}
-          </View>
-        )
-      })}
-    </>
-  )
-}
-
-function Signature({ model }: { model: ReportModel }) {
+function Signature({ model, schedules = false }: { model: ReportModel; schedules?: boolean }) {
   return (
     <View wrap={false}>
-      <Text style={styles.integral}>The accompanying notes form an integral part of these financial statements.</Text>
-      <View style={styles.sign}>
-        <Text>For {model.companyName}</Text>
-        <Text style={styles.signLine}>Authorised signatory</Text>
+      <Text style={s.integral}>
+        {schedules
+          ? "The schedules above form an integral part of these financial statements."
+          : "The annexed schedules form an integral part of these financial statements."}
+      </Text>
+      <View style={s.signature}>
+        <Text style={s.bold}>For {model.companyName}</Text>
+        <Text style={s.bold}>{model.place}</Text>
+        <View style={{ width: 92, borderBottomWidth: 0.8, marginTop: 34 }} />
+        <Text style={[s.bold, { marginTop: 4 }]}>Authorised Signatory</Text>
       </View>
     </View>
   )
 }
 
-function Note({ note, model }: { note: NoteBlock; model: ReportModel }) {
-  const size = (note.rows?.length ?? 0) + (note.table?.body.length ?? 0) + (note.paragraphs?.join(" ").length ?? 0) / 90
+function Cover({ model }: { model: ReportModel }) {
   return (
-    <View wrap={size > 28} minPresenceAhead={60}>
-      <View wrap={false}>
-        <Text style={styles.noteTitle}>
-          {note.number}. {note.title.toUpperCase()}
-        </Text>
-        {note.rows && (
-          <View style={[styles.row, { fontFamily: "Times-Bold", paddingBottom: 3 }]}>
-            <Text style={styles.label} />
-            <Text style={styles.amount}>
-              {model.year} {model.currency}
-            </Text>
-            {model.priorYear && (
-              <Text style={styles.amount}>
-                {model.priorYear} {model.currency}
-              </Text>
-            )}
-          </View>
-        )}
+    <Page size="A4" style={[s.page, { fontSize: 12 }]}>
+      <View style={{ marginTop: 150, alignItems: "center" }}>
+        <View style={{ width: 70, borderTopWidth: 1.2, marginBottom: 18 }} />
+        <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>{model.companyName}</Text>
+        <Text style={[s.bold, { marginTop: 4, textAlign: "center" }]}>{model.location}</Text>
+        <Text style={[s.bold, { marginTop: 4, textAlign: "center" }]}>FINANCIAL STATEMENTS</Text>
+        <Text style={[s.bold, { marginTop: 4, textAlign: "center" }]}>{model.periodEndText}</Text>
+        <View style={{ width: 70, borderTopWidth: 1.2, marginTop: 18 }} />
       </View>
-      {note.paragraphs?.map((text, i) => (
-        <Text key={i} style={styles.para}>
-          {text}
-        </Text>
-      ))}
-      {note.rows && <Rows rows={note.rows} model={model} withNote={false} />}
-      {note.table && (
-        <View style={{ marginTop: 4, marginBottom: 4 }} wrap={false}>
-          {[note.table.head, ...note.table.body].map((cells, r) => (
-            <View
-              key={r}
-              style={[
-                styles.row,
-                r === 0 ? { fontFamily: "Times-Bold", borderBottomWidth: 0.6, borderBottomColor: rule } : {},
-                r === note.table!.body.length ? { fontFamily: "Times-Bold", borderTopWidth: 0.6, borderTopColor: rule } : {},
-              ]}
-            >
-              {cells.map((cell, c) => (
-                <Text key={c} style={c === 0 ? styles.label : c === 1 ? { width: 110 } : styles.amount}>
-                  {cell}
-                </Text>
-              ))}
+      <Text style={[s.bold, { position: "absolute", bottom: 70, left: 0, right: 0, textAlign: "center" }]}>Private &amp; Confidential</Text>
+    </Page>
+  )
+}
+
+function IndexPage({ model, pages }: { model: ReportModel; pages?: PageMarks }) {
+  const range = (key: IndexKey, i: number) => {
+    const start = pages?.[key]
+    if (!start) return ""
+    const nextKey = reportIndex[i + 1]?.key
+    const end = (nextKey ? pages?.[nextKey] : pages?.end) ?? start
+    const last = nextKey ? end - 1 : end
+    return last > start ? `${start} - ${last}` : String(start)
+  }
+  return (
+    <Page size="A4" style={[s.page, { fontSize: 10.5 }]}>
+      <View style={{ marginTop: 40 }}>
+        <Text style={[s.bold, { fontSize: 11, paddingBottom: 3, borderBottomWidth: 2 }]}>{model.companyName}</Text>
+        <Text style={[s.bold, { fontSize: 11, textAlign: "center", marginTop: 14, marginBottom: 14 }]}>INDEX TO THE FINANCIAL STATEMENTS</Text>
+        <View style={[s.row, { borderTopWidth: 1.2, borderBottomWidth: 2, paddingVertical: 8, marginTop: 6 }]}>
+          <Text style={[s.bold, { flex: 1, textAlign: "center" }]}>PARTICULARS</Text>
+          <Text style={[s.bold, { width: 150, textAlign: "center" }]}>PAGE NUMBER</Text>
+        </View>
+        <View style={{ borderBottomWidth: 2, paddingBottom: 4 }}>
+          {reportIndex.map((item, i) => (
+            <View key={item.key} style={[s.row, { paddingTop: 13 }]}>
+              <Text style={{ flex: 1 }}>{item.label}</Text>
+              <Text style={{ width: 150, textAlign: "center" }}>{range(item.key, i)}</Text>
             </View>
           ))}
         </View>
-      )}
+      </View>
+    </Page>
+  )
+}
+
+function StatementPage({
+  model,
+  title,
+  rows,
+  mark,
+  onPage,
+}: {
+  model: ReportModel
+  title: string
+  rows: Row[]
+  mark: IndexKey
+  onPage?: OnPage
+}) {
+  return (
+    <Page size="A4" style={s.page}>
+      <Mark onPage={onPage} name={mark} />
+      <Heading model={model} title={title} />
+      <YearHeader model={model} />
+      {rows.map((row, i) => (
+        <StatementRow key={i} row={row} model={model} />
+      ))}
+      <Signature model={model} />
+      <PageNumber />
+    </Page>
+  )
+}
+
+function EquityBlock({ table, model }: { table: EquityTable; model: ReportModel }) {
+  const W = 66
+  return (
+    <View style={{ marginBottom: 20 }} wrap={false}>
+      <View style={[s.row, { alignItems: "flex-end" }]}>
+        <View style={{ flex: 1 }} />
+        {table.columns.map((column) => (
+          <Text key={column} style={[s.bold, { width: W, marginLeft: 5, textAlign: "center" }]}>
+            {column}
+          </Text>
+        ))}
+      </View>
+      <View style={[s.row, { borderBottomWidth: 1.2, paddingBottom: 4, marginTop: 6 }]}>
+        <Text style={[s.bold, { flex: 1 }]}>{table.year}</Text>
+        {table.columns.map((column) => (
+          <Text key={column} style={[s.bold, { width: W, marginLeft: 5, textAlign: "center" }]}>
+            {model.currency}
+          </Text>
+        ))}
+      </View>
+      {table.lines.map((line, i) => (
+        <View key={i} style={[s.row, { marginTop: line.kind ? 6 : 9 }]}>
+          <Text style={[{ flex: 1, paddingVertical: 1.7 }, line.kind ? [s.bold, { borderTopWidth: 1.4, borderBottomWidth: 1.4 }] : {}].flat()}>{line.label}</Text>
+          {line.values.map((value, j) => (
+            <View key={j} style={[{ width: W, marginLeft: 5 }, line.kind ? { borderTopWidth: 1.4, borderBottomWidth: 1.4 } : {}]}>
+              <Text style={[{ textAlign: "right", paddingVertical: 1.7, paddingRight: 2 }, line.kind ? s.bold : {}]}>{fmt(value)}</Text>
+            </View>
+          ))}
+        </View>
+      ))}
     </View>
   )
 }
 
-export function StatementsPdf({ model, pages, onPage }: { model: ReportModel; pages?: PageMarks; onPage?: OnPage }) {
-  const range = (name: (typeof reportIndex)[number], next?: (typeof reportIndex)[number] | "end") => {
-    const start = pages?.[name]
-    const end = next ? (pages?.[next] ?? 0) - (next === "end" ? 0 : 1) : start
-    if (!start) return ""
-    return end && end > start ? `${start} - ${end}` : `${start}`
-  }
-  const titleYear = `FOR THE YEAR ENDED ${model.periodEndText.toUpperCase()}`
+function ScheduleBlock({ schedule, model }: { schedule: Schedule; model: ReportModel }) {
   return (
-    <Document title={`${model.companyName} – Financial statements ${model.year}`} author={model.companyName} creator="FinScope">
-      {/* Cover */}
-      <Page size="A4" style={[styles.page, { justifyContent: "center", alignItems: "center", textAlign: "center" }]}>
-        <View style={{ borderTopWidth: 1.4, borderBottomWidth: 1.4, borderColor: ink, paddingVertical: 28, paddingHorizontal: 20, width: "100%" }}>
-          <Text style={{ fontFamily: "Times-Bold", fontSize: 24, letterSpacing: 1, lineHeight: 1.2 }}>{model.companyName.toUpperCase()}</Text>
-          <Text style={{ fontSize: 12, marginTop: 14, letterSpacing: 1.5, lineHeight: 1.2 }}>{model.location}</Text>
-          <Text style={{ fontFamily: "Times-Bold", fontSize: 15, marginTop: 44, letterSpacing: 2 }}>FINANCIAL STATEMENTS</Text>
-          <Text style={{ fontSize: 12, marginTop: 8 }}>{titleYear}</Text>
-        </View>
-        <Text style={{ position: "absolute", bottom: 60, fontFamily: "Times-Italic", fontSize: 10 }}>Private &amp; Confidential</Text>
-      </Page>
-
-      {/* Index */}
-      <Page size="A4" style={styles.page}>
-        <View style={styles.head}>
-          <Text style={styles.company}>{model.companyName}</Text>
-          <Text style={styles.title}>Index to the financial statements</Text>
-        </View>
-        <View style={styles.colHead}>
-          <Text style={styles.label}>Particulars</Text>
-          <Text style={styles.amount}>Page</Text>
-        </View>
-        {reportIndex.map((name, i) => (
-          <View key={name} style={[styles.row, { paddingVertical: 5 }]}>
-            <Text style={styles.label}>{name}</Text>
-            <Text style={styles.amount}>
-              {name === "Significant accounting policies"
-                ? range(name, "Notes to the financial statements")
-                : name === "Notes to the financial statements"
-                  ? range(name, "end")
-                  : range(name, reportIndex[i + 1])}
-            </Text>
-          </View>
-        ))}
-      </Page>
-
-      {/* Company information */}
-      <Page size="A4" style={styles.page}>
-        <Mark onPage={onPage} name="Company information" />
-        <Header model={model} title="Company information" />
-        {model.companyInfo.map((item) => (
-          <View key={item.heading} style={{ marginBottom: 12 }} wrap={false}>
-            <Text style={{ fontFamily: "Times-Bold", textTransform: "uppercase", fontSize: 9.5 }}>{item.heading}</Text>
-            {item.text.map((line, i) => (
-              <Text key={i} style={{ marginTop: 2 }}>
-                {line}
+    <View style={{ marginTop: 10 }} wrap={false}>
+      <View style={s.row}>
+        <Text style={[s.bold, { width: 26 }]}>{schedule.number}</Text>
+        <Text style={[s.bold, { flex: 1 }]}>{schedule.title}</Text>
+      </View>
+      {schedule.paragraphs?.map((text, i) => (
+        <Text key={i} style={{ marginLeft: 26, marginTop: 3, marginBottom: 4, textAlign: "justify" }}>
+          {text}
+        </Text>
+      ))}
+      {schedule.table && (
+        <View style={{ marginLeft: 26, marginTop: 2 }}>
+          <View style={[s.row, { borderBottomWidth: 0.9, paddingBottom: 2 }]}>
+            {schedule.table.head.map((cell, i) => (
+              <Text key={i} style={[s.bold, cellStyle(i, schedule.table!.numeric)]}>
+                {cell}
               </Text>
             ))}
           </View>
-        ))}
-        <Footer model={model} />
-      </Page>
-
-      {/* Statement of financial position */}
-      <Page size="A4" style={styles.page}>
-        <Mark onPage={onPage} name="Statement of financial position" />
-        <Header model={model} title={`Statement of financial position as at ${model.periodEndText}`} />
-        <Columns model={model} />
-        <Rows rows={model.bs} model={model} />
-        <Signature model={model} />
-        <Footer model={model} />
-      </Page>
-
-      {/* Statement of comprehensive income */}
-      <Page size="A4" style={styles.page}>
-        <Mark onPage={onPage} name="Statement of comprehensive income" />
-        <Header model={model} title={`Statement of comprehensive income ${model.yearEndedText}`} />
-        <Columns model={model} />
-        <Rows rows={model.income} model={model} />
-        <Signature model={model} />
-        <Footer model={model} />
-      </Page>
-
-      {/* Statement of changes in equity */}
-      <Page size="A4" orientation="landscape" style={styles.landscape}>
-        <Mark onPage={onPage} name="Statement of changes in equity" />
-        <Header model={model} title={`Statement of changes in equity ${model.yearEndedText}`} />
-        {model.equity.map((table) => (
-          <View key={table.year} style={{ marginBottom: 14 }} wrap={false}>
-            <View style={styles.colHead}>
-              <Text style={styles.label}>{table.year}</Text>
-              {table.columns.map((column) => (
-                <Text key={column} style={[styles.amount, { width: 100 }]}>
-                  {column}
-                  {"\n"}
-                  {model.currency}
-                </Text>
-              ))}
-            </View>
-            {table.lines.map((line, i) => (
-              <View key={i} style={[styles.row, line.total ? styles.total : {}]}>
-                <Text style={styles.label}>{line.label}</Text>
-                {line.values.map((value, j) => (
-                  <Text key={j} style={[styles.amount, { width: 100 }]}>
-                    {value === null ? "n.a." : fmt(value)}
+          {schedule.table.body.map((cells, r) => {
+            const total = schedule.table!.totalLast && r === schedule.table!.body.length - 1
+            return (
+              <View key={r} style={[s.row, total ? { borderTopWidth: 0.9, borderBottomWidth: 0.9, marginTop: 2 } : {}]}>
+                {cells.map((cell, i) => (
+                  <Text key={i} style={[cellStyle(i, schedule.table!.numeric), { paddingVertical: 1.7 }, total ? s.bold : {}]}>
+                    {cell}
                   </Text>
                 ))}
               </View>
-            ))}
-          </View>
-        ))}
-        <Signature model={model} />
-        <View style={[styles.footer, { left: 48, right: 48 }]} fixed>
-          <Text>{model.companyName}</Text>
-          <Text render={({ pageNumber }) => `${pageNumber - 2}`} />
+            )
+          })}
         </View>
-      </Page>
+      )}
+      {schedule.rows?.map((row, i) => (
+        <StatementRow key={i} row={row} model={model} indent={26} withNote={false} />
+      ))}
+    </View>
+  )
+}
 
-      {/* Statement of cash flows */}
-      <Page size="A4" style={styles.page}>
-        <Mark onPage={onPage} name="Statement of cash flows" />
-        <Header model={model} title={`Statement of cash flows ${model.yearEndedText}`} />
-        <Columns model={model} />
-        <Rows rows={model.cashFlow} model={model} />
+function cellStyle(index: number, numeric: number[]): Style {
+  if (numeric.includes(index)) return { width: index === numeric.at(-1) ? AMOUNT_W : 60, textAlign: "right", paddingRight: 3 }
+  return index === 0 ? { flex: 1 } : { width: 110 }
+}
+
+export function StatementsPdf({ model, pages, onPage }: { model: ReportModel; pages?: PageMarks; onPage?: OnPage }) {
+  const ended = `FOR THE YEAR ENDED ${model.periodEndText.toUpperCase()}`
+  return (
+    <Document title={`${model.companyName} - Financial Statements ${model.year}`} author={model.companyName} creator="FinScope" producer="FinScope">
+      <Cover model={model} />
+      <IndexPage model={model} pages={pages} />
+      <StatementPage
+        model={model}
+        mark="bs"
+        onPage={onPage}
+        title={`STATEMENT OF FINANCIAL POSITION AS AT ${model.periodEndText.toUpperCase()}`}
+        rows={model.bs}
+      />
+      <StatementPage model={model} mark="income" onPage={onPage} title={`STATEMENT OF COMPREHENSIVE INCOME ${ended}`} rows={model.income} />
+      <Page size="A4" style={s.page}>
+        <Mark onPage={onPage} name="equity" />
+        <Heading model={model} title={`STATEMENT OF CHANGES IN EQUITY ${ended}`} />
+        <View style={{ marginTop: 10 }}>
+          {model.equity.map((table) => (
+            <EquityBlock key={table.year} table={table} model={model} />
+          ))}
+        </View>
         <Signature model={model} />
-        <Footer model={model} />
+        <PageNumber />
       </Page>
-
-      {/* Policies */}
-      <Page size="A4" style={styles.page}>
-        <Mark onPage={onPage} name="Significant accounting policies" />
-        <Header model={model} title={`Significant accounting policies ${model.yearEndedText}`} />
-        {model.policies.map((note) => (
-          <Note key={note.number} note={note} model={model} />
+      <StatementPage model={model} mark="cashFlow" onPage={onPage} title={`STATEMENT OF CASH FLOWS ${ended}`} rows={model.cashFlow} />
+      <Page size="A4" style={s.page}>
+        <Mark onPage={onPage} name="schedules" />
+        <View fixed>
+          <Heading model={model} title={`SCHEDULES TO THE FINANCIAL STATEMENTS ${ended}`} />
+        </View>
+        <YearHeader model={model} withNote={false} />
+        {model.schedules.map((schedule) => (
+          <ScheduleBlock key={schedule.number} schedule={schedule} model={model} />
         ))}
-        <Footer model={model} />
-      </Page>
-
-      {/* Notes */}
-      <Page size="A4" style={styles.page}>
-        <Mark onPage={onPage} name="Notes to the financial statements" />
-        <Header model={model} title={`Notes to the financial statements ${model.yearEndedText}`} />
-        {model.notes.map((note) => (
-          <Note key={note.number} note={note} model={model} />
-        ))}
+        <Signature model={model} schedules />
         <Mark onPage={onPage} name="end" />
-        <Footer model={model} />
+        <PageNumber />
       </Page>
     </Document>
   )
