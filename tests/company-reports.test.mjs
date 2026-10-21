@@ -365,3 +365,47 @@ test("scanned MOA: one OCR digit slip is repaired only when the totals prove it"
   assert.deepEqual(unsure.fields.partners.map((p) => p.sharePercent), [29, 29, 25, 25])
   assert.match(unsure.issues.map((i) => i.message).join(" "), /add up to 108%/)
 })
+
+test("movement entry carries balances forward; closing entry is reported as entered", async () => {
+  const { resolveRecords } = await jiti.import("../lib/movement.ts")
+  const raw = (year, entryMode, entries) => ({
+    clientId: "00000000-0000-4000-8000-000000000001",
+    clientName: "Test LLC",
+    year,
+    currency: "AED",
+    openingEquity: null,
+    entryMode,
+    id: `x-${year}`,
+    revision: 1,
+    updatedAt: "",
+    rows: entries.map(([ledgerName, amount], i) => ({ id: `${year}-${i}`, ledgerName, amount, scheduleKey: resolveSchedule(ledgerName, amount) })),
+  })
+  const y25 = raw(2025, "closing", [
+    ["Revenue", -20000], ["Cost of Goods Sold", 10000], ["Share Capital", -25000],
+    ["Bank", 15000], ["Rent Expense", 10000], ["Fixed Assets", 10000],
+  ])
+  // 2026 movements only: no share capital, no fixed assets line.
+  const y26 = raw(2026, "movement", [
+    ["Revenue", -80000], ["Cost of Goods Sold", 7500], ["Rent Expense", 7000],
+    ["Depreciation Expense", 2500], ["Allowance for Depreciation", -2500],
+    ["Bank", 42500], ["Accounts Payable", -4500], ["Accounts Receivable", 1500],
+    ["Current Account", 15000], ["Cash in Hand", 11000],
+  ])
+  const [r25, r26] = resolveRecords([y26, y25])
+  const bs = (record, row) => record.statements.bs.find((line) => line.row === row).amount
+  assert.equal(bs(r26, 46), 25000) // share capital carried
+  assert.equal(bs(r26, 11), 7500) // NBV 10,000 - 2,500
+  assert.equal(r26.statements.netProfit, 63000)
+  assert.equal(r26.statements.balanceDifference, 0)
+  assert.equal(bs(r26, 25), bs(r26, 52))
+  const model = buildReport(company, [r25, r26], 2026)
+  const ppe = model.schedules.find((item) => item.number === 1).rows
+  assert.equal(ppe.find((row) => row.label === "Additions / (disposals), net").current, 0)
+  assert.equal(ppe.at(-1).current, 7500)
+  // Equity: no phantom capital movement.
+  const equity2026 = model.equity.at(-1)
+  assert.equal(equity2026.lines.find((line) => line.label === "Net movements").values[0], 0)
+  // The same 2026 figures entered as closing balances are reported as entered.
+  const [, closing26] = resolveRecords([y25, { ...y26, entryMode: "closing" }])
+  assert.equal(bs(closing26, 46), 0)
+})

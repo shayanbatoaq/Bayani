@@ -36,7 +36,7 @@ export async function createFinancialWorkbook(
   const raw = workbook.addWorksheet("Trial balance", { state: "hidden" })
   raw.addRow(["Year", "Ledger", "Amount", "Schedule"])
   for (const record of records)
-    for (const row of record.rows)
+    for (const row of record.closingRows ?? record.rows)
       raw.addRow([
         record.year,
         row.ledgerName,

@@ -408,7 +408,7 @@ function ppeMovement(
     if (!record) return { cost: 0, accumulated: 0 }
     let cost = 0
     let accumulated = 0
-    for (const row of record.rows) {
+    for (const row of record.closingRows ?? record.rows) {
       if (row.scheduleKey !== "ppe") continue
       if (contra.test(row.ledgerName) || row.amount < 0) accumulated -= row.amount
       else cost += row.amount

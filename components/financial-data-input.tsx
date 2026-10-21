@@ -10,12 +10,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { financialPeriod, formatLongDate, type Company } from "@/lib/company"
 import {
-  calculateFinancials,
+  categoryOf,
   scheduleValue,
+  type FinancialLedger,
   type FinancialRecord,
   type OpeningEquity,
 } from "@/lib/financial-statements"
-import type { CustomHead } from "@/lib/ledger-heads"
+import { toPlain, type CustomHead } from "@/lib/ledger-heads"
+import { closingRowsFor, priorYearOf, statementsFor, type EntryMode, type PriorYear } from "@/lib/movement"
+import { formatAmount } from "@/lib/trial-balance"
 import { createLedgerRow, type LedgerRow } from "@/lib/trial-balance"
 import { cn } from "@/lib/utils"
 
@@ -35,6 +38,7 @@ export function FinancialDataInput() {
   const [companyId, setCompanyId] = useState("")
   const [year, setYear] = useState<number | null>(null)
   const [rows, setRows] = useState<LedgerRow[]>([])
+  const [entryMode, setEntryMode] = useState<EntryMode>("closing")
   const [opening, setOpening] = useState<OpeningText>(BLANK)
   const [openingSource, setOpeningSource] = useState<"saved" | "prior" | "manual" | "">("")
   const [openingOpen, setOpeningOpen] = useState(true)
@@ -80,11 +84,14 @@ export function FinancialDataInput() {
         currency: "AED",
         openingEquity,
         rows: rows.map((row) => ({ id: row.id, ledgerName: row.ledgerName, amount: row.amount, scheduleKey: row.scheduleKey ?? "" })),
+        entryMode,
       }
     : null
   const signature = input ? JSON.stringify(input) : ""
   const dirty = Boolean(input) && signature !== savedSignature && (rows.length > 0 || revision > 0)
-  const statements = input ? calculateFinancials(input) : null
+  const prior = company && year ? priorYearOf(records, company.id, year) : null
+  const resolved = input ? statementsFor(input, prior) : null
+  const statements = resolved?.statements ?? null
 
   useEffect(() => {
     if (!dirty) return
@@ -101,6 +108,7 @@ export function FinancialDataInput() {
     if (dirty && !window.confirm(`Discard unsaved changes to ${year}?`)) return
     const record = companyRecords.find((item) => item.year === next)
     const prior = companyRecords.find((item) => item.year === next - 1)
+    const nextMode: EntryMode = record?.entryMode ?? (prior ? "movement" : "closing")
     const nextRows = record?.rows.map((row) => ({ ...createLedgerRow(row), ...row })) ?? []
     let nextOpening = BLANK
     let source: typeof openingSource = ""
@@ -114,6 +122,7 @@ export function FinancialDataInput() {
     }
     setYear(next)
     setRows(nextRows)
+    setEntryMode(nextMode)
     setOpening(nextOpening)
     setOpeningSource(source)
     setOpeningOpen(!record?.openingEquity && !prior)
@@ -129,6 +138,7 @@ export function FinancialDataInput() {
             currency: "AED",
             openingEquity: record.openingEquity,
             rows: record.rows,
+            entryMode: nextMode,
           })
         : ""
     )
@@ -172,6 +182,11 @@ export function FinancialDataInput() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       setRecords((current) => [...current.filter((r) => r.id !== data.record.id), data.record])
+      // Later movement years build on this one, so refresh them too.
+      fetch("/api/financial-data", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((all) => all.records && setRecords(all.records))
+        .catch(() => {})
       setRevision(data.record.revision)
       setSavedSignature(signature)
       setMessage(`${year} saved.`)
@@ -273,17 +288,31 @@ export function FinancialDataInput() {
 
       {year && company && (
         <>
-          <p className="text-sm text-muted-foreground">
-            Trial balance for the year {formatLongDate(period!.start)} – {formatLongDate(period!.end)}, before
-            year-end closing entries.
-          </p>
+          <EntryModePicker
+            value={entryMode}
+            onChange={setEntryMode}
+            year={year}
+            hasPrior={Boolean(prior)}
+            period={`${formatLongDate(period!.start)} – ${formatLongDate(period!.end)}`}
+          />
           <DataInputWorkbench
             key={`${company.id}-${year}`}
             rows={rows}
             onRowsChange={setRows}
             customHeads={company.customHeads}
             onAddCustomHead={addCustomHead}
+            entryMode={entryMode}
           />
+
+          {entryMode === "movement" && prior && resolved && (
+            <ClosingBalances
+              year={year}
+              prior={prior}
+              movements={input!.rows}
+              closing={resolved.closingRows}
+              customHeads={company.customHeads}
+            />
+          )}
 
           {rows.length > 0 && statements && (
             <>
@@ -373,4 +402,117 @@ function toText(values: OpeningEquity): OpeningText {
     retained: String(values.retained),
     shareholder: String(values.shareholder),
   }
+}
+
+function EntryModePicker({
+  value,
+  onChange,
+  year,
+  hasPrior,
+  period,
+}: {
+  value: EntryMode
+  onChange: (mode: EntryMode) => void
+  year: number
+  hasPrior: boolean
+  period: string
+}) {
+  const options: { mode: EntryMode; title: string; text: string }[] = [
+    {
+      mode: "movement",
+      title: "Movement",
+      text: hasPrior
+        ? `Enter only what changed during ${year}. Balances from ${year - 1} (share capital, fixed assets, loans, bank and so on) are carried forward and your movements are added to them.`
+        : `Enter what changed during ${year}. There is no saved ${year - 1}, so these figures are treated as the closing balances.`,
+    },
+    {
+      mode: "closing",
+      title: "Closing",
+      text: `Enter every balance as at the end of ${year}, including those that did not change. The figures are reported exactly as entered.`,
+    },
+  ]
+  return (
+    <fieldset className="space-y-3">
+      <legend className="text-sm font-medium">How are you entering {year}?</legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {options.map((option) => (
+          <label
+            key={option.mode}
+            className={cn(
+              "flex cursor-pointer gap-3 rounded-lg border bg-white p-4 shadow-sm transition-colors hover:border-primary/60",
+              value === option.mode && "border-primary ring-1 ring-primary"
+            )}
+          >
+            <input
+              type="radio"
+              name="entry-mode"
+              className="mt-1 accent-[var(--primary)]"
+              checked={value === option.mode}
+              onChange={() => onChange(option.mode)}
+            />
+            <span>
+              <span className="block font-semibold">{option.title}</span>
+              <span className="mt-1 block text-sm leading-5 text-muted-foreground">{option.text}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">Financial year {period}. Profit and loss heads are always the figures for the year.</p>
+    </fieldset>
+  )
+}
+
+/** Carried balance + movement = closing, for every balance sheet head. */
+function ClosingBalances({
+  year,
+  prior,
+  movements,
+  closing,
+  customHeads,
+}: {
+  year: number
+  prior: PriorYear
+  movements: FinancialLedger[]
+  closing: FinancialLedger[]
+  customHeads: CustomHead[]
+}) {
+  const carried = closingRowsFor({ rows: [], entryMode: "movement" }, prior).rows
+  const key = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ")
+  const sum = (list: FinancialLedger[], name: string) =>
+    list.filter((row) => key(row.ledgerName) === key(name)).reduce((total, row) => total + row.amount, 0)
+  const names = [...new Map([...carried, ...movements].filter((row) => categoryOf(row.scheduleKey)?.statement === "BS").map((row) => [key(row.ledgerName), row])).values()]
+  const plain = (row: FinancialLedger, amount: number) => {
+    const value = Math.round(toPlain(row.ledgerName, amount, row.scheduleKey, customHeads) * 100) / 100
+    return value === 0 ? "-" : value < 0 ? `(${formatAmount(-value)})` : formatAmount(value)
+  }
+  return (
+    <details className="rounded-xl border bg-white p-5" open>
+      <summary className="cursor-pointer font-medium">Closing balances at the end of {year} (carried forward + movements)</summary>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="py-2">Head</th>
+              <th className="py-2 text-right">From {year - 1} (AED)</th>
+              <th className="py-2 text-right">Movement (AED)</th>
+              <th className="py-2 text-right">Closing (AED)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {names.map((row) => (
+              <tr key={row.ledgerName} className="border-b last:border-0">
+                <td className="py-2">{row.ledgerName}</td>
+                <td className="py-2 text-right font-mono">{plain(row, sum(carried, row.ledgerName))}</td>
+                <td className="py-2 text-right font-mono">{plain(row, sum(movements, row.ledgerName))}</td>
+                <td className="py-2 text-right font-mono font-semibold">{plain(row, sum(closing, row.ledgerName))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Retained earnings include {year - 1}&apos;s profit and drawings. Amounts in brackets are on the opposite side to usual (for example an overdrawn bank).
+      </p>
+    </details>
+  )
 }

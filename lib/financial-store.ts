@@ -18,6 +18,7 @@ import {
   type FinancialRecord,
 } from "./financial-statements"
 import { financialInputSchema } from "./financial-validation"
+import { resolveRecords } from "./movement"
 
 export class FinancialError extends Error {
   constructor(
@@ -89,15 +90,11 @@ export async function listFinancialRecords(
         const parsed = JSON.parse(
           await readFile(path.join(directory, file), "utf8")
         ) as FinancialRecord
-        const validated = financialInputSchema.parse(parsed)
-        return {
-          ...parsed,
-          ...validated,
-          statements: calculateFinancials(validated),
-        }
+        const { revision, ...validated } = financialInputSchema.parse(parsed)
+        return { ...parsed, ...validated, revision: parsed.revision ?? revision }
       })
   )
-  return records.sort(
+  return resolveRecords(records).sort(
     (a, b) => b.year - a.year || a.clientName.localeCompare(b.clientName)
   )
 }
@@ -148,7 +145,10 @@ export async function saveFinancialRecord(
       mode: 0o600,
     })
     await rename(temporary, filename)
-    return record
+    // Statements depend on the year before (movement entry), so return the resolved record.
+    return (
+      (await listFinancialRecords(owner)).find((item) => item.id === id) ?? record
+    )
   } finally {
     await lock.close()
     await unlink(lockPath)

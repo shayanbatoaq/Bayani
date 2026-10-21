@@ -117,11 +117,14 @@ export function DataInputWorkbench({
   onRowsChange,
   customHeads,
   onAddCustomHead,
+  entryMode = "closing",
 }: {
   rows: LedgerRow[]
   onRowsChange: (rows: LedgerRow[]) => void
   customHeads: CustomHead[]
   onAddCustomHead: (head: CustomHead) => Promise<void>
+  /** In movement entry, depreciation is paired with accumulated depreciation automatically. */
+  entryMode?: "closing" | "movement"
 }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const amountInput = useRef<HTMLInputElement>(null)
@@ -233,8 +236,18 @@ export function DataInputWorkbench({
       )
       setNotice(`${head} updated.`)
     } else {
-      onRowsChange([...rows, withSchedule({ ledgerName: head, amount: signed })])
-      setNotice(`${head} added.`)
+      const added = withSchedule({ ledgerName: head, amount: signed })
+      const next = [...rows, added]
+      let paired = ""
+      if (entryMode === "movement" && added.scheduleKey === "depreciation") {
+        // The charge reduces the assets' book value: credit accumulated depreciation by the same amount.
+        const at = next.findIndex((row) => row.scheduleKey === "ppe" && /depreciation|allowance|accumulated/i.test(row.ledgerName))
+        if (at >= 0) next[at] = { ...next[at], amount: Math.round((next[at].amount - signed) * 100) / 100 }
+        else next.push({ ...createLedgerRow({ ledgerName: "Allowance for Depreciation", amount: -signed }), scheduleKey: "ppe" })
+        paired = ` Accumulated depreciation (Allowance for Depreciation) increased by AED ${formatAmount(Math.abs(signed))} to match.`
+      }
+      onRowsChange(next)
+      setNotice(`${head} added.${paired}`)
       setPage(Math.ceil((filtered.length + 1) / PAGE_SIZE))
     }
     setEditingId(null)
@@ -451,6 +464,9 @@ export function DataInputWorkbench({
                 aria-invalid={Boolean(amount && parsedAmount === null)}
                 onChange={(event) => setAmount(event.target.value)}
               />
+              {entryMode === "movement" && (
+                <p className="text-xs text-muted-foreground">Increase in the year. Enter a decrease as a negative, e.g. -5000.</p>
+              )}
             </div>
             <div className="flex gap-2">
               <Button type="submit" className="h-10 bg-emerald-800 hover:bg-emerald-900" disabled={!head || head === NEW_HEAD || !parsedAmount || Boolean(headChoices && !choice)}>

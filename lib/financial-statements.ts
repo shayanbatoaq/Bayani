@@ -414,6 +414,8 @@ export type FinancialInput = {
   currency: string
   rows: FinancialLedger[]
   openingEquity: OpeningEquity | null
+  /** "closing" (default): rows are closing balances. "movement": rows are the year's movements. */
+  entryMode?: "closing" | "movement"
 }
 export type ReportLine = {
   label: string
@@ -445,6 +447,8 @@ export type FinancialRecord = FinancialInput & {
   revision: number
   updatedAt: string
   statements: FinancialOutput
+  /** Closing balances the statements were built from (equal to rows in closing mode). */
+  closingRows?: FinancialLedger[]
 }
 
 export function suggestSchedule(
