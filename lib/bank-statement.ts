@@ -723,3 +723,115 @@ export function detectBank(text: string) {
   const byName = BANKS.find(([, pattern]) => pattern.test(head))
   return byName ? byName[0] : "Bank"
 }
+
+/* ---------------- several statements of one account ---------------- */
+
+export type StatementPart = { account: BankAccount; bank: string; file: string }
+export type MergedAccount = {
+  account: BankAccount
+  bank: string
+  files: string[]
+  /** Breaks between consecutive statements: the next one does not open where the last closed. */
+  gaps: { after: string; before: string; closed: number; opened: number }[]
+  /** Lines that appeared in two uploaded statements and were counted once. */
+  duplicates: number
+}
+
+const digits = (s: string) => s.replace(/\D/g, "")
+const named = (p: StatementPart) => p.bank !== "Bank" && digits(p.account.account).length >= 6
+/** Same bank and currency, and one account number ends with the other's last digits (IBAN vs account number). */
+function sameNumber(a: StatementPart, b: StatementPart) {
+  if (a.bank !== b.bank || a.account.currency !== b.account.currency) return false
+  const x = digits(a.account.account)
+  const y = digits(b.account.account)
+  const tail = Math.min(x.length, y.length, 10)
+  return x.slice(-tail) === y.slice(-tail)
+}
+/** A statement without a bank name or account number joins another only where the balances run on. */
+function runsOn(a: StatementPart, b: StatementPart) {
+  if (a.account.currency !== b.account.currency) return false
+  if (a.bank !== b.bank && a.bank !== "Bank" && b.bank !== "Bank") return false
+  const [first, second] = (a.account.from || "") <= (b.account.from || "") ? [a, b] : [b, a]
+  return first.account.closing !== null && second.account.opening !== null && close(first.account.closing, second.account.opening, 0.011) && first.account.to <= second.account.from
+}
+
+/**
+ * Statements of the same account uploaded in any order (February, May, January…) are put
+ * in date order and joined into one account: opening from the earliest, closing from the
+ * latest, lines in date order, lines repeated across overlapping statements counted once,
+ * and any break between one statement's closing and the next one's opening reported.
+ */
+export function mergeStatements(parts: StatementPart[]): MergedAccount[] {
+  const groups: StatementPart[][] = []
+  for (const part of parts.filter(named)) {
+    const group = groups.find((g) => g.some((member) => named(member) && sameNumber(member, part)))
+    if (group) group.push(part)
+    else groups.push([part])
+  }
+  let unplaced = parts.filter((p) => !named(p))
+  for (let changed = true; changed && unplaced.length; ) {
+    changed = false
+    for (const part of [...unplaced]) {
+      const group = groups.find((g) => g.some((member) => runsOn(member, part)))
+      if (!group) continue
+      group.push(part)
+      unplaced = unplaced.filter((p) => p !== part)
+      changed = true
+    }
+  }
+  // Left over: chained to each other where balances run on, otherwise an account of their own.
+  for (const part of unplaced) {
+    const group = groups.find((g) => g.every((member) => !named(member)) && g.some((member) => runsOn(member, part)))
+    if (group) group.push(part)
+    else groups.push([part])
+  }
+  return groups.map((group) => {
+    const ordered = [...group].sort((a, b) => (a.account.from || "9999").localeCompare(b.account.from || "9999") || (a.account.to || "").localeCompare(b.account.to || ""))
+    const seen = new Set<string>()
+    const transactions: BankTransaction[] = []
+    let duplicates = 0
+    const gaps: MergedAccount["gaps"] = []
+    let previous: StatementPart | null = null
+    for (const part of ordered) {
+      if (previous && previous.account.closing !== null && part.account.opening !== null && part.account.transactions.length && !close(previous.account.closing, part.account.opening, 0.011)) {
+        // An overlap (the later statement repeats earlier lines) is not a break.
+        const overlaps = part.account.from <= previous.account.to
+        if (!overlaps) gaps.push({ after: previous.account.to, before: part.account.from, closed: previous.account.closing, opened: part.account.opening })
+      }
+      // Only lines already read from an EARLIER statement are repeats; two equal lines in one statement are both real.
+      const own: string[] = []
+      for (const t of part.account.transactions) {
+        const key = `${t.date}|${t.amount}|${t.balance}|${t.description}`
+        if (seen.has(key)) {
+          duplicates++
+          continue
+        }
+        own.push(key)
+        transactions.push(t)
+      }
+      own.forEach((key) => seen.add(key))
+      if (part.account.transactions.length) previous = part
+    }
+    // Date order across statements; lines of the same day keep the order the bank printed them.
+    const order = new Map(transactions.map((t, i) => [t, i]))
+    transactions.sort((a, b) => a.date.localeCompare(b.date) || order.get(a)! - order.get(b)!)
+    const withLines = ordered.filter((p) => p.account.transactions.length)
+    const first = withLines[0] ?? ordered[0]
+    const last = withLines[withLines.length - 1] ?? ordered[ordered.length - 1]
+    const account: BankAccount = {
+      ...first.account,
+      key: ordered.map((p) => p.account.key).join("+"),
+      account: ordered.map((p) => p.account.account).sort((a, b) => b.length - a.length)[0] ?? "",
+      opening: first.account.opening,
+      statedOpening: first.account.statedOpening,
+      closing: last.account.closing,
+      statedClosing: last.account.statedClosing,
+      transactions,
+      verified: ordered.reduce((t, p) => t + p.account.verified, 0),
+      mismatches: ordered.reduce((t, p) => t + p.account.mismatches, 0),
+      from: transactions[0]?.date ?? "",
+      to: transactions[transactions.length - 1]?.date ?? "",
+    }
+    return { account, bank: first.bank, files: [...new Set(ordered.map((p) => p.file))], gaps, duplicates }
+  })
+}

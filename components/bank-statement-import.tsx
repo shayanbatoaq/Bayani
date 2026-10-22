@@ -19,7 +19,7 @@ import {
 } from "@/lib/bank-categories"
 import { StatementPasswordError, readStatementFile } from "@/lib/bank-reader"
 import type { BankSession } from "@/lib/bank-session"
-import type { BankAccount, ParsedStatement } from "@/lib/bank-statement"
+import { mergeStatements, type BankAccount, type MergedAccount, type ParsedStatement } from "@/lib/bank-statement"
 import { formatLongDate } from "@/lib/company"
 import { categoryOf, scheduleLines } from "@/lib/financial-statements"
 import { ledgerHeads, type CustomHead } from "@/lib/ledger-heads"
@@ -221,7 +221,9 @@ export function BankStatementImport({
     setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "reading", error: undefined } : f)))
     try {
       if (!entry.file) return
-      const parsed = await readStatementFile(entry.file, entry.password)
+      const read = await readStatementFile(entry.file, entry.password)
+      // Line ids carry the file's id so lines from different statements never share one.
+      const parsed = { ...read, accounts: read.accounts.map((a) => ({ ...a, key: `${entry.id}:${a.key}`, transactions: a.transactions.map((t) => ({ ...t, id: `${entry.id}:${t.id}` })) })) }
       setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "done", parsed } : f)))
     } catch (cause) {
       if (cause instanceof StatementPasswordError)
@@ -263,15 +265,9 @@ export function BankStatementImport({
     entries.forEach((entry) => void read(entry))
   }
 
-  const accounts = useMemo(
-    () =>
-      files.flatMap((f) =>
-        (f.parsed?.accounts ?? []).map((account) => ({
-          account,
-          bank: f.parsed!.bank,
-          file: f.name,
-        })),
-      ),
+  // Statements of one account, uploaded in any order, become one account in date order.
+  const accounts: MergedAccount[] = useMemo(
+    () => mergeStatements(files.flatMap((f) => (f.parsed?.accounts ?? []).map((account) => ({ account, bank: f.parsed!.bank, file: f.name })))),
     [files],
   )
 
@@ -323,12 +319,12 @@ export function BankStatementImport({
   }
 
   /* ---- per-account period figures ---- */
-  const accountFigures = accounts.map(({ account, bank, file }) => {
+  const accountFigures = accounts.map(({ account, bank, files: names, gaps, duplicates }) => {
     const before = account.transactions.filter((t) => t.date < period.start).reduce((s, t) => s + t.amount, 0)
     const within = account.transactions.filter((t) => t.date >= period.start && t.date <= period.end)
     const opening = (account.opening ?? 0) + before
     const closing = opening + within.reduce((s, t) => s + t.amount, 0)
-    return { account, bank, file, opening, closing, count: within.length }
+    return { account, bank, file: names.length > 1 ? `${names.length} statements` : names[0], opening, closing, count: within.length, gaps, duplicates }
   })
   const currencies = [...new Set(accounts.map((a) => a.account.currency))]
   const rate = (c: string) => (c === "AED" ? 1 : (rates[c] ?? 0))
@@ -519,8 +515,8 @@ export function BankStatementImport({
               <ShieldCheck className="size-4 text-[var(--lagoon)]" /> Statement check
             </h3>
             <div className="grid gap-3 lg:grid-cols-2">
-              {accountFigures.map(({ account, bank, file, opening, closing, count }) => (
-                <AccountCard key={account.key} account={account} bank={bank} file={file} opening={opening} closing={closing} count={count} />
+              {accountFigures.map(({ account, bank, file, opening, closing, count, gaps, duplicates }) => (
+                <AccountCard key={account.key} account={account} bank={bank} file={file} opening={opening} closing={closing} count={count} gaps={gaps} duplicates={duplicates} />
               ))}
             </div>
             {coverage.missing.length > 0 && (
@@ -778,9 +774,27 @@ function FileRow({ file, onPassword, onRemove }: { file: Loaded; onPassword: (pa
   )
 }
 
-function AccountCard({ account, bank, file, opening, closing, count }: { account: BankAccount; bank: string; file: string; opening: number; closing: number; count: number }) {
+function AccountCard({
+  account,
+  bank,
+  file,
+  opening,
+  closing,
+  count,
+  gaps,
+  duplicates,
+}: {
+  account: BankAccount
+  bank: string
+  file: string
+  opening: number
+  closing: number
+  count: number
+  gaps: MergedAccount["gaps"]
+  duplicates: number
+}) {
   const statedOk = account.statedClosing === null || Math.abs(account.statedClosing - (account.closing ?? 0)) < 0.02
-  const ok = account.mismatches === 0 && statedOk
+  const ok = account.mismatches === 0 && statedOk && gaps.length === 0
   return (
     <div className={cn("min-w-0 rounded-2xl border p-4", ok ? "bg-[var(--lagoon-wash)]/50" : "bg-[#fdecec]/60")}>
       <div className="flex items-start gap-3">
@@ -817,8 +831,20 @@ function AccountCard({ account, bank, file, opening, closing, count }: { account
           ? `Every line agrees with the running balance${account.statedClosing !== null ? " and the closing balance printed on the statement" : ""}.`
           : account.mismatches
             ? `${account.mismatches} line${account.mismatches === 1 ? "" : "s"} did not agree with the running balance. Check them in All lines (marked).`
-            : `The closing balance on the statement (${money(account.statedClosing ?? 0)}) differs from the lines read (${money(account.closing ?? 0)}).`}
+            : gaps.length
+              ? `Statements are in date order, but ${gaps.length === 1 ? "one statement does" : `${gaps.length} statements do`} not open where the previous one closed: a statement is probably missing.`
+              : `The closing balance on the statement (${money(account.statedClosing ?? 0)}) differs from the lines read (${money(account.closing ?? 0)}).`}
       </p>
+      {gaps.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-[#7a1c14]">
+          {gaps.map((g) => (
+            <li key={`${g.after}-${g.before}`}>
+              Closed {money(g.closed)} on {formatLongDate(g.after)}, next opens {money(g.opened)} on {formatLongDate(g.before)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {duplicates > 0 && <p className="mt-2 text-xs text-muted-foreground">{duplicates} lines appeared in two overlapping statements and were counted once.</p>}
     </div>
   )
 }

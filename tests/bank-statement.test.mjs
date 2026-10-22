@@ -4,7 +4,7 @@ import { createJiti } from "jiti"
 
 // All statements here are invented layouts with invented names and figures.
 const jiti = createJiti(import.meta.url)
-const { parsePdfStatement, parseTableStatement, parseMoney, parseDate, detectBank } = await jiti.import("../lib/bank-statement.ts")
+const { parsePdfStatement, parseTableStatement, parseMoney, parseDate, detectBank, mergeStatements } = await jiti.import("../lib/bank-statement.ts")
 const { categorise, categoriseAccounts, patternOf, ledgerEntries, totalsByHead, markReversals, headCategory } = await jiti.import("../lib/bank-categories.ts")
 
 const t = (s, x, y, w = s.length * 4.5) => ({ s, x, y, w })
@@ -186,4 +186,48 @@ test("a payment and its reversal cancel out; own heads can be categories", () =>
   assert.equal(head.group, "Cost of sales")
   const learned = [{ pattern: patternOf("BLUEWAVE SCAFFOLDING 2231"), category: head.key }]
   assert.equal(categorise({ id: "d", date: "2026-03-05", description: "BLUEWAVE SCAFFOLDING 9910", amount: -700, balance: null }, { learned }).category, head.key)
+})
+
+test("monthly statements uploaded out of order are joined in date order", () => {
+  const month = (m, opening, lines, account = "AE070330000012345678901") => {
+    let balance = opening
+    const transactions = lines.map(([day, amount, description], i) => {
+      balance = Math.round((balance + amount) * 100) / 100
+      return { id: `${m}-${i}`, date: `2026-${m}-${day}`, description, amount, balance }
+    })
+    return { key: m, currency: "AED", account, opening, closing: balance, statedOpening: null, statedClosing: null, transactions, verified: lines.length, mismatches: 0, from: transactions[0].date, to: transactions.at(-1).date }
+  }
+  const jan = month("01", 1000, [["05", 500, "Customer A"], ["20", -200, "Rent"]])
+  const feb = month("02", 1300, [["03", -100, "DEWA"], ["15", 400, "Customer B"]], "12345678901")
+  const may = month("05", 2000, [["02", -50, "Bank charges"]])
+  // uploaded February, May, January
+  const [merged] = mergeStatements([
+    { account: feb, bank: "Mashreq", file: "feb.pdf" },
+    { account: may, bank: "Mashreq", file: "may.pdf" },
+    { account: jan, bank: "Mashreq", file: "jan.pdf" },
+  ])
+  assert.deepEqual(merged.account.transactions.map((t) => t.date), ["2026-01-05", "2026-01-20", "2026-02-03", "2026-02-15", "2026-05-02"])
+  assert.equal(merged.account.opening, 1000)
+  assert.equal(merged.account.closing, 1950)
+  assert.deepEqual(merged.files, ["jan.pdf", "feb.pdf", "may.pdf"])
+  // February closed at 1,600 but May opens at 2,000: March and April are missing
+  assert.deepEqual(merged.gaps, [{ after: "2026-02-15", before: "2026-05-02", closed: 1600, opened: 2000 }])
+
+  // the same month uploaded twice is counted once; another bank stays separate
+  const twice = mergeStatements([
+    { account: jan, bank: "Mashreq", file: "jan.pdf" },
+    { account: { ...jan, key: "copy" }, bank: "Mashreq", file: "jan-copy.pdf" },
+    { account: { ...may, account: "999" }, bank: "Wio Bank", file: "wio.pdf" },
+  ])
+  assert.equal(twice.length, 2)
+  // statements with no bank name or number join only where the balance runs on
+  const unnamed = (key, opening, closing, from, to) => ({ ...jan, key, account: "", opening, closing, from, to })
+  const loose = mergeStatements([
+    { account: unnamed("a", 1000, 1300, "2026-01-05", "2026-01-20"), bank: "Bank", file: "a.pdf" },
+    { account: unnamed("b", 1300, 900, "2026-02-01", "2026-02-20"), bank: "Bank", file: "b.pdf" },
+    { account: unnamed("c", 50, 70, "2026-01-01", "2026-01-31"), bank: "Bank", file: "c.pdf" },
+  ])
+  assert.deepEqual(loose.map((m) => m.files), [["a.pdf", "b.pdf"], ["c.pdf"]])
+  assert.equal(twice[0].account.transactions.length, 2)
+  assert.equal(twice[0].duplicates, 2)
 })
