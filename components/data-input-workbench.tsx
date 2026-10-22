@@ -440,6 +440,8 @@ export function DataInputWorkbench({
           learned={statement.learned}
           onSaveRules={statement.onSaveRules}
           hasRows={rows.length > 0}
+          customHeads={customHeads}
+          onAddHead={onAddCustomHead}
           onApply={async (entries: StatementRows, how, summary) => {
             // Heads the standard list does not have are added as the company's own heads.
             for (const entry of entries) {

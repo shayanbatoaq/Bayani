@@ -5,7 +5,7 @@ import { createJiti } from "jiti"
 // All statements here are invented layouts with invented names and figures.
 const jiti = createJiti(import.meta.url)
 const { parsePdfStatement, parseTableStatement, parseMoney, parseDate, detectBank } = await jiti.import("../lib/bank-statement.ts")
-const { categorise, categoriseAccounts, patternOf, ledgerEntries, totalsByHead } = await jiti.import("../lib/bank-categories.ts")
+const { categorise, categoriseAccounts, patternOf, ledgerEntries, totalsByHead, markReversals, headCategory } = await jiti.import("../lib/bank-categories.ts")
 
 const t = (s, x, y, w = s.length * 4.5) => ({ s, x, y, w })
 const page = (items) => ({ width: 595, height: 842, items })
@@ -152,4 +152,38 @@ test("totals become balanced trial balance rows", () => {
   rows.push({ ledgerName: "Retained Earnings", amount: -1000, scheduleKey: "retained" })
   assert.equal(Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100), 0)
   assert.deepEqual(rows.find((r) => r.ledgerName === "Revenue"), { ledgerName: "Revenue", amount: -1000, scheduleKey: "sales" })
+})
+
+test("statements issued page by page with their own opening balance stay one account", () => {
+  const sheet = (y0, opening, rows) => [
+    t("Currency", 389, y0), t("AED", 549, y0),
+    t("DATE", 26, y0 + 155), t("DESCRIPTION", 209, y0 + 155), t("DEBIT", 355, y0 + 155), t("CREDIT", 426, y0 + 155), t("BALANCE", 518, y0 + 155),
+    t("Opening balance", 214, y0 + 190), t(opening, 541, y0 + 190),
+    ...rows.flatMap(([date, text, debit, credit, balance], i) => [t(date, 17, y0 + 213 + i * 12), t(text, 154, y0 + 213 + i * 12), ...(debit ? [t(debit, 374, y0 + 213 + i * 12)] : []), ...(credit ? [t(credit, 440, y0 + 213 + i * 12)] : []), t(balance, 541, y0 + 213 + i * 12)]),
+    t("Closing Statement Balance", 192, y0 + 213 + rows.length * 12 + 10), t(rows.at(-1)[4], 541, y0 + 213 + rows.length * 12 + 10),
+  ]
+  const pages = [
+    page(sheet(100, "0.00", [["23 AUG 2024", "ATM Cash Deposit", "", "2,250.00", "2,250.00"]])),
+    page(sheet(100, "2,250.00", [["30 SEP 2024", "Tax Amount Due", "5.00", "", "2,245.00"], ["01 OCT 2024", "Account Maintenance Fee", "250.00", "", "1,995.00"]])),
+  ]
+  const accounts = parsePdfStatement(pages).accounts
+  assert.equal(accounts.length, 1)
+  assert.equal(accounts[0].transactions.length, 3)
+  assert.equal(accounts[0].closing, 1995)
+  assert.equal(categorise(accounts[0].transactions[1]).category, "bankCharges")
+})
+
+test("a payment and its reversal cancel out; own heads can be categories", () => {
+  const list = [
+    { id: "a", date: "2026-03-01", description: "IPP Transfer Ref 7781 Pay Dtls SALMAR", amount: -11000, balance: null, account: "x", currency: "AED", category: "review", suggested: "purchases", source: "suggested" },
+    { id: "b", date: "2026-03-01", description: "IPP Transfer Ref 7781 Pay Dtls SALMAR", amount: 11000, balance: null, account: "x", currency: "AED", category: "review", suggested: "sales", source: "suggested" },
+    { id: "c", date: "2026-03-02", description: "Supplier payment", amount: -11000, balance: null, account: "x", currency: "AED", category: "review", suggested: "purchases", source: "suggested" },
+  ]
+  markReversals(list)
+  assert.deepEqual(list.map((x) => x.category), ["reversed", "reversed", "review"])
+  const head = headCategory({ name: "Subcontractor charges", scheduleKey: "costOfSales" }, "P&L")
+  assert.equal(head.key, "head:Subcontractor charges")
+  assert.equal(head.group, "Cost of sales")
+  const learned = [{ pattern: patternOf("BLUEWAVE SCAFFOLDING 2231"), category: head.key }]
+  assert.equal(categorise({ id: "d", date: "2026-03-05", description: "BLUEWAVE SCAFFOLDING 9910", amount: -700, balance: null }, { learned }).category, head.key)
 })

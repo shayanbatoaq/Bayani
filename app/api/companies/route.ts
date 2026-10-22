@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { companyDraftSchema } from "@/lib/company"
-import { companyLimit, deleteCompany, listCompanies, saveCompany } from "@/lib/company-store"
+import { companyLimit, companyTestMode, deleteCompany, listCompanies, saveCompany } from "@/lib/company-store"
 import { financialErrorResponse, financialOwner } from "@/lib/financial-store"
 import { assertSameOrigin, readJson } from "@/lib/request-guard"
 
@@ -25,7 +25,7 @@ export async function GET() {
   try {
     const owner = await financialOwner()
     return Response.json(
-      { companies: await listCompanies(owner), limit: companyLimit() },
+      { companies: await listCompanies(owner), limit: await companyLimit(owner), testMode: companyTestMode() },
       { headers: { "Cache-Control": "private, no-store" } }
     )
   } catch (error) {

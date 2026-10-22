@@ -4,10 +4,24 @@ import { useMemo, useRef, useState } from "react"
 import { AlertTriangle, CheckCircle2, ChevronDown, FileText, KeyRound, Landmark, Loader2, Search, ShieldCheck, Trash2, UploadCloud, Wand2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { CATEGORIES, DEFAULT_RATES, categoriseAccounts, categoryByKey, patternOf, type CategorisedTransaction, type LearnedRule } from "@/lib/bank-categories"
+import {
+  CATEGORIES,
+  DEFAULT_RATES,
+  HEAD_PREFIX,
+  categoriseAccounts,
+  categoryByKey,
+  headCategory,
+  markReversals,
+  patternOf,
+  type CategorisedTransaction,
+  type Category,
+  type LearnedRule,
+} from "@/lib/bank-categories"
 import { StatementPasswordError, readStatementFile } from "@/lib/bank-reader"
 import type { BankAccount, ParsedStatement } from "@/lib/bank-statement"
 import { formatLongDate } from "@/lib/company"
+import { categoryOf, scheduleLines } from "@/lib/financial-statements"
+import { ledgerHeads, type CustomHead } from "@/lib/ledger-heads"
 import { cn } from "@/lib/utils"
 
 type Loaded = {
@@ -71,6 +85,8 @@ export function BankStatementImport({
   onSaveRules,
   onApply,
   hasRows,
+  customHeads,
+  onAddHead,
 }: {
   companyName: string
   period: { start: string; end: string }
@@ -80,6 +96,8 @@ export function BankStatementImport({
   onSaveRules: (rules: LearnedRule[]) => Promise<void>
   onApply: (rows: StatementRows, mode: "replace" | "append", summary: string) => Promise<void> | void
   hasRows: boolean
+  customHeads: CustomHead[]
+  onAddHead: (head: CustomHead) => Promise<void>
 }) {
   const input = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<Loaded[]>([])
@@ -95,6 +113,19 @@ export function BankStatementImport({
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState("")
   const [shown, setShown] = useState(60)
+
+  // Every head of the trial balance list (standard and the company's own) can be chosen for a line.
+  const heads = useMemo(() => {
+    const seen = new Set<string>()
+    const list: Category[] = []
+    for (const head of [...ledgerHeads.map((h) => ({ name: h.name, scheduleKey: h.scheduleKey })), ...customHeads]) {
+      if (!head.scheduleKey || head.scheduleKey === "auto" || head.scheduleKey === "bank" || seen.has(head.name.toLowerCase())) continue
+      seen.add(head.name.toLowerCase())
+      list.push(headCategory(head, categoryOf(head.scheduleKey)?.statement))
+    }
+    return list
+  }, [customHeads])
+  const catOf = (key: string) => categoryByKey.get(key) ?? heads.find((h) => h.key === key)
 
   async function read(entry: Loaded) {
     setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "reading", error: undefined } : f)))
@@ -185,7 +216,7 @@ export function BankStatementImport({
         t.source = match.source = "rule"
       }
     }
-    return list
+    return markReversals(list)
   }, [accounts, companyName, learned, period.start, period.end])
 
   const effective = (t: (typeof all)[number]) => overrides[t.id] ?? sessionRules[patternOf(t.description)] ?? t.category
@@ -217,16 +248,17 @@ export function BankStatementImport({
   )
 
   /* ---- totals by head ---- */
-  const heads = new Map<string, { amount: number; count: number }>()
+  const totals = new Map<string, { amount: number; count: number }>()
   for (const t of inPeriod) {
     const key = effective(t)
-    const entry = heads.get(key) ?? { amount: 0, count: 0 }
+    const entry = totals.get(key) ?? { amount: 0, count: 0 }
     entry.amount += t.amount * rate(t.currency)
     entry.count++
-    heads.set(key, entry)
+    totals.set(key, entry)
   }
-  const moneyIn = inPeriod.filter((t) => t.amount > 0 && effective(t) !== "transfer").reduce((s, t) => s + t.amount * rate(t.currency), 0)
-  const moneyOut = inPeriod.filter((t) => t.amount < 0 && effective(t) !== "transfer").reduce((s, t) => s + t.amount * rate(t.currency), 0)
+  const counted = (t: (typeof all)[number]) => !["transfer", "reversed"].includes(effective(t))
+  const moneyIn = inPeriod.filter((t) => t.amount > 0 && counted(t)).reduce((s, t) => s + t.amount * rate(t.currency), 0)
+  const moneyOut = inPeriod.filter((t) => t.amount < 0 && counted(t)).reduce((s, t) => s + t.amount * rate(t.currency), 0)
 
   function buildRows() {
     const out = new Map<string, { ledgerName: string; amount: number; scheduleKey: string }>()
@@ -236,8 +268,8 @@ export function BankStatementImport({
       entry.amount += amount
       out.set(key, entry)
     }
-    for (const [key, total] of heads) {
-      const category = categoryByKey.get(key)
+    for (const [key, total] of totals) {
+      const category = catOf(key)
       if (!category?.ledgerName) continue
       let amount = total.amount
       if (vatIncluded && VAT_SCOPE.has(key)) {
@@ -248,7 +280,7 @@ export function BankStatementImport({
       push(category.ledgerName, category.scheduleKey, -amount)
     }
     // Lines still under review are left in the bank so the figures balance; they are reported in the summary.
-    const pending = heads.get("review")?.amount ?? 0
+    const pending = (totals.get("review")?.amount ?? 0) + (totals.get("reversed")?.amount ?? 0)
     if (Math.abs(pending) > 0.004) push("Suspense (bank lines under review)", "otherPayables", -pending)
     if (entryMode === "movement") push("Bank", "bank", closingAed - openingAed)
     else {
@@ -427,10 +459,10 @@ export function BankStatementImport({
               <div className="panel space-y-4 p-5">
                 <h3 className="font-display font-semibold">How the money is classified</h3>
                 <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {[...heads.entries()]
+                  {[...totals.entries()]
                     .sort((a, b) => Math.abs(b[1].amount) - Math.abs(a[1].amount))
                     .map(([key, total]) => {
-                      const category = categoryByKey.get(key)
+                      const category = catOf(key)
                       return (
                         <button key={key} type="button" onClick={() => setView(key)} className={cn("tile text-left", view === key && "tile-active")}>
                           <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -456,7 +488,7 @@ export function BankStatementImport({
                     </button>
                     {view !== "review" && view !== "all" && (
                       <button type="button" role="tab" aria-selected className="track-item">
-                        {categoryByKey.get(view)?.label}
+                        {catOf(view)?.label}
                       </button>
                     )}
                   </div>
@@ -482,7 +514,18 @@ export function BankStatementImport({
                 ) : (
                   <ul className="divide-y rounded-2xl border">
                     {visible.slice(0, shown).map((t) => (
-                      <TransactionRow key={t.id} t={t} category={effective(t)} onChange={(category) => setCategory(t, category, true)} />
+                      <TransactionRow
+                        key={t.id}
+                        t={t}
+                        category={effective(t)}
+                        heads={heads}
+                        catOf={catOf}
+                        onChange={(category) => setCategory(t, category, true)}
+                        onAddHead={async (head) => {
+                          await onAddHead(head)
+                          setCategory(t, `${HEAD_PREFIX}${head.name}`, true)
+                        }}
+                      />
                     ))}
                   </ul>
                 )}
@@ -658,9 +701,32 @@ function AccountCard({ account, bank, file, opening, closing, count }: { account
   )
 }
 
-function TransactionRow({ t, category, onChange }: { t: CategorisedTransaction & { bank: string }; category: string; onChange: (category: string) => void }) {
-  const current = categoryByKey.get(category)
-  const suggested = categoryByKey.get(t.suggested)
+const NEW_HEAD = "__new_head__"
+const REPORT_UNDER = scheduleLines.filter((line) => !["bank", "cash"].includes(line.key))
+
+function TransactionRow({
+  t,
+  category,
+  heads,
+  catOf,
+  onChange,
+  onAddHead,
+}: {
+  t: CategorisedTransaction & { bank: string }
+  category: string
+  heads: Category[]
+  catOf: (key: string) => Category | undefined
+  onChange: (category: string) => void
+  onAddHead: (head: CustomHead) => Promise<void>
+}) {
+  const current = catOf(category)
+  const suggested = catOf(t.suggested)
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState("")
+  const [under, setUnder] = useState(t.amount >= 0 ? "otherIncome" : "otherExpenses")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const known = new Set(CATEGORIES.map((c) => c.key))
   return (
     <li className="grid gap-2 px-3 py-2.5 text-sm sm:grid-cols-[6.5rem_1fr_8rem_14rem] sm:items-center">
       <span className="text-xs text-muted-foreground tabular-nums">{formatLongDate(t.date)}</span>
@@ -677,18 +743,83 @@ function TransactionRow({ t, category, onChange }: { t: CategorisedTransaction &
           aria-label={`Category for ${t.description}`}
           className={cn("h-9 w-full appearance-none rounded-lg border bg-white pl-2.5 pr-8 text-sm", category === "review" && "border-[var(--saffron)] bg-[var(--saffron-wash)]")}
           value={category}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            if (e.target.value === NEW_HEAD) {
+              setAdding(true)
+              return
+            }
+            onChange(e.target.value)
+          }}
         >
           {category === "review" && suggested && <option value={t.suggested}>Suggested: {suggested.label}</option>}
-          {CATEGORIES.map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.label}
-            </option>
-          ))}
+          <optgroup label="Categories">
+            {CATEGORIES.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Trial balance heads">
+            {heads.map((h) => (
+              <option key={h.key} value={h.key}>
+                {h.label}
+              </option>
+            ))}
+            {!known.has(category) && !heads.some((h) => h.key === category) && <option value={category}>{current?.label ?? category.replace(HEAD_PREFIX, "")}</option>}
+          </optgroup>
+          <option value={NEW_HEAD}>+ Add a new head…</option>
         </select>
         <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         {current && category !== "review" && <span className="sr-only">{current.hint}</span>}
       </span>
+      {adding && (
+        <form
+          className="flex flex-wrap items-end gap-2 rounded-xl border bg-secondary/40 p-3 sm:col-span-4"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            const head = name.trim()
+            if (head.length < 2) {
+              setError("Enter a name of at least 2 letters.")
+              return
+            }
+            setSaving(true)
+            setError("")
+            try {
+              await onAddHead({ name: head, scheduleKey: under })
+              setAdding(false)
+              setName("")
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : "Could not add the head.")
+            } finally {
+              setSaving(false)
+            }
+          }}
+        >
+          <label className="min-w-48 flex-1 text-xs">
+            <span className="text-muted-foreground">New head</span>
+            <input autoFocus className="mt-1 h-9 w-full rounded-lg border bg-white px-2.5 text-sm" maxLength={120} placeholder="e.g. Subcontractor charges" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="min-w-48 flex-1 text-xs">
+            <span className="text-muted-foreground">Reported under</span>
+            <select className="mt-1 h-9 w-full rounded-lg border bg-white px-2.5 text-sm" value={under} onChange={(e) => setUnder(e.target.value)}>
+              {REPORT_UNDER.map((line) => (
+                <option key={line.key} value={line.key}>
+                  {line.label} ({categoryOf(line.key)?.statement === "BS" ? "balance sheet" : "profit & loss"})
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button type="submit" size="sm" disabled={saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+            Add head
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setAdding(false)}>
+            Cancel
+          </Button>
+          <p className="basis-full text-[11px] text-muted-foreground">The head is added to your trial balance list and used for this line and every line from the same payer or payee.</p>
+          {error && <p className="basis-full text-xs text-[#b42318]">{error}</p>}
+        </form>
+      )}
     </li>
   )
 }

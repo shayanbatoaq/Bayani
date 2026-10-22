@@ -44,12 +44,26 @@ export const CATEGORIES: Category[] = [
   { key: "owner", label: "Owner's account (in / drawings)", ledgerName: "Current Account", scheduleKey: "shareholder", group: "Balance sheet", hint: "Owner putting money in or taking money out" },
   { key: "loan", label: "Loan received / repaid", ledgerName: "Long Term Liabilities", scheduleKey: "longTermLiabilities", group: "Balance sheet", hint: "Bank or other loans drawn and instalments repaid" },
   { key: "cash", label: "Cash withdrawn / deposited", ledgerName: "Cash in Hand", scheduleKey: "cash", group: "Balance sheet", hint: "ATM withdrawals and cash deposits (spent or banked in cash)" },
-  { key: "transfer", label: "Transfer between own accounts", ledgerName: "", scheduleKey: "", group: "Not counted", hint: "Moving money between the company's own accounts" },
+  { key: "reversed", label: "Reversed / returned payment", ledgerName: "", scheduleKey: "", group: "Not counted", hint: "A payment and its reversal: together they move no money" },
+  { key: "transfer", label: "Transfer between own accounts", ledgerName: "Bank (other company accounts)", scheduleKey: "bank", group: "Not counted", hint: "Moving money between the company's own accounts" },
   { key: "review", label: "Under review", ledgerName: "", scheduleKey: "", group: "Not counted", hint: "Not yet decided" },
 ]
 export const categoryByKey = new Map(CATEGORIES.map((c) => [c.key, c]))
 
-type Rule = { test: RegExp; category: string; direction?: "in" | "out"; review?: boolean }
+/** The company's own heads (from the trial balance list) can be used as categories too. */
+export const HEAD_PREFIX = "head:"
+export function headCategory(head: { name: string; scheduleKey: string }, statement?: "BS" | "P&L"): Category {
+  return {
+    key: `${HEAD_PREFIX}${head.name}`,
+    label: head.name,
+    ledgerName: head.name,
+    scheduleKey: head.scheduleKey,
+    group: statement === "BS" ? "Balance sheet" : head.scheduleKey === "sales" || head.scheduleKey === "otherIncome" ? "Income" : head.scheduleKey === "costOfSales" ? "Cost of sales" : "Expenses",
+    hint: "Your own head",
+  }
+}
+
+type Rule = { test: RegExp; category: string; direction?: "in" | "out"; review?: boolean; max?: number }
 
 const RULES: Rule[] = [
   // Not income or expense
@@ -61,21 +75,23 @@ const RULES: Rule[] = [
   { test: /\b(loan|emi|instal?ment|murabaha|ijara|finance repayment)\b/i, category: "loan", direction: "out" },
   { test: /security deposit|refundable deposit/i, category: "deposits", direction: "out" },
   // Bank charges and the VAT on them
-  { test: /value added tax|vat on|^vat\b|\bvat$|- vat|vat\)|incl\. vat/i, category: "bankCharges", direction: "out" },
-  { test: /charge|charges|chgs|\bfees?\b|commission|maintenance|maintainance|telex|swift|membership fee|subscription fees|recover|premium -|foreign exchange transaction fee|fx fee|corr\.?bank|stamp duty|minimum balance|balance requirement/i, category: "bankCharges", direction: "out" },
+  { test: /tax amount due|vat amount|tax on charges/i, category: "bankCharges", direction: "out", max: 1000 },
+  // (size limits keep large payments whose narrative mentions "telex" or "charges" out of bank charges)
+  { test: /value added tax|vat on|^vat\b|\bvat$|- vat|vat\)|incl\. vat/i, category: "bankCharges", direction: "out", max: 1000 },
+  { test: /\b(bank|account|a\/c|transfer|trf|txn|transaction|service|remittance|swift|telex|ipp|atm|cheque|chq|card|digital banking|online banking|internet banking|corr|correspondent|correspondant|conf\.?|confirmation|membership|subscription|processing|handling|statement|ledger|maintenance|maintainance|min(imum)? bal(ance)?|balance requirement|outward|inward|instant payment|exchange|fx|covering|retail|monthly|annual|aani|uaefts)\b[\w\s.-]{0,14}?\b(charges?|chgs|fees?|commission|recovery|recoveries)\b|^charges?\b|charge collection|commission|telex recover|stamp duty|non maintenance of balance|min bal fee|premium -|corr\.?bank|charges collection/i, category: "bankCharges", direction: "out", max: 5000 },
   { test: /\binterest\b|profit paid|overdraft interest/i, category: "interest", direction: "out" },
   { test: /\binterest\b|profit (credit|distribution)|cashback|cash back/i, category: "otherIncome", direction: "in" },
   // Income
   { test: /network international|magnati|mashreq neopay|\bpos settlement|merchant settlement|card settlement|stripe|checkout\.?com|telr|paytabs|tap payments|\bpayby\b|ziina|tabby|tamara|amazon payments|noon payments|talabat|deliveroo|careem (pay|food)|shopify payments|paypal/i, category: "sales", direction: "in" },
   // Staff
-  { test: /\b(salary|salaries|sal\b|payroll|wps|sif|wages?|bonus|end of service|gratuity|leave salary)\b/i, category: "payroll", direction: "out" },
+  { test: /\b(salary|salaries|sal\b|payroll|wps|sif|wages?|bonus|end of service|gratuity|leave salary)\b|\bsal(?:ary)?[\s-]*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i, category: "payroll", direction: "out" },
   { test: /\b(enoc|adnoc|eppco|emarat|petrol|fuel|salik|rta|parking|rent a car|car rental|autopro|tyres?|car wash)\b/i, category: "vehicle", direction: "out" },
   // Premises
   { test: /\b(rent|ejari|lease|landlord|tenancy)\b/i, category: "rent", direction: "out" },
   // Utilities and telecom
-  { test: /\b(dewa|sewa|addc|aadc|fewa|etihad water|empower|tabreed|lootah gas|emirates gas|etisalat|e&|du\b|emirates integrated telecom|virgin mobile)\b/i, category: "utilities", direction: "out" },
+  { test: /\b(dewa|sewa|addc|aadc|fewa|etihad water|empower|tabreed|lootah gas|emirates gas|etisalat|e&|du (quick ?pay|bill|mobile|postpaid|prepaid|recharge|payment|home)|du\.ae|emirates integrated telecom|virgin mobile)\b/i, category: "utilities", direction: "out" },
   // Government
-  { test: /\b(ded|dubai economy|department of economy|tasheel|amer|tawjeeh|mohre|ministry of human|ministry of|gdrfa|federal authority for identity|emirates id|visa (fee|application|renewal|stamping|change)|entry permit|residence permit|immigration|jafza|jebel ali free zone|dmcc authority|dafza|rakez|ifza|meydan free zone|shams free zone|spc free zone|ajman free zone|creative city|trade licen[cs]e|licen[cs]e renewal|chamber of commerce|dubai municipality|traffic fine|dubai police)\b/i, category: "govFees", direction: "out" },
+  { test: /\b(ded|dubai economy|department of economy|tasheel|amer|tawjeeh|mohre|ministry of human|ministry of|gdrfa|federal authority for identity|emirates id|visa (fee|fees|charges|application|renewal|stamping|change)|entry permit|residence permit|immigration|jafza|jebel ali free zone|dmcc authority|dafza|rakez|ifza|meydan free zone|shams free zone|spc free zone|ajman free zone|creative city|trade licen[cs]e|licen[cs]e renewal|chamber of commerce|dubai municipality|traffic fine|dubai police)\b/i, category: "govFees", direction: "out" },
   // Professional
   { test: /\b(audit|auditing|accounting|bookkeeping|legal|advocates?|lawyer|consultan(t|cy)|notary|pro services|tax agent)\b/i, category: "professional", direction: "out" },
   // Marketing
@@ -86,8 +102,8 @@ const RULES: Rule[] = [
   { test: /emirates airline|emirates\.com|flydubai|air ?arabia|etihad airways|booking\.com|expedia|agoda|airbnb|hotel|marriott|hilton|accor|ibis|rotana|careem|uber|\btaxi\b|hala|airport/i, category: "travel", direction: "out" },
   // Meals, office, insurance
   { test: /restaurant|cafe|coffee|starbucks|costa|tim hortons|mcdonald|kfc|pizza|shawarma|talabat|deliveroo|zomato|noon food|eataly|diner|grill|bistro|kitchen/i, category: "meals", direction: "out" },
-  { test: /carrefour|lulu|spinneys|waitrose|union coop|choithrams|instashop|ikea|ace hardware|office|stationery|aramex|dhl|fedex|smsa|courier|emirates post|amazon\.ae|noon\.com|duty free/i, category: "office", direction: "out" },
-  { test: /insurance|takaful|\baxa\b|sukoon|daman|orient insurance|oman insurance|adnic|watania/i, category: "insurance", direction: "out" },
+  { test: /carrefour|lulu|spinneys|waitrose|union coop|choithrams|instashop|ikea|ace hardware|office (supplies|expense|equipment)|stationery|aramex|dhl|fedex|smsa|courier|emirates post|amazon\.ae|noon\.com|duty free/i, category: "office", direction: "out" },
+  { test: /insurance|takaful|axa (insurance|gulf)|sukoon|daman|orient insurance|oman insurance|adnic|watania/i, category: "insurance", direction: "out" },
 ]
 
 export type CategorisedTransaction = BankTransaction & {
@@ -128,7 +144,7 @@ export function categorise(transaction: BankTransaction, options: { companyName?
   const direction = transaction.amount >= 0 ? "in" : "out"
   const pattern = patternOf(text)
   const learned = pattern ? options.learned?.find((rule) => rule.pattern === pattern) : undefined
-  if (learned && categoryByKey.has(learned.category)) return { category: learned.category, suggested: learned.category, source: "learned" }
+  if (learned && (categoryByKey.has(learned.category) || learned.category.startsWith(HEAD_PREFIX))) return { category: learned.category, suggested: learned.category, source: "learned" }
   // Money moving between accounts held in the company's own name.
   // (the name must follow the transfer wording: the company also appears as remitter on its own payments)
   const words = options.companyName ? companyWords(options.companyName) : []
@@ -136,6 +152,7 @@ export function categorise(transaction: BankTransaction, options: { companyName?
     return { category: "transfer", suggested: "transfer", source: "rule" }
   for (const rule of RULES) {
     if (rule.direction && rule.direction !== direction) continue
+    if (rule.max !== undefined && Math.abs(transaction.amount) > rule.max) continue
     if (rule.test.test(text)) return { category: rule.category, suggested: rule.category, source: "rule" }
   }
   // Unclear: suggest the usual meaning, but leave it for the user to confirm.
@@ -147,6 +164,33 @@ export function categoriseAccounts(accounts: BankAccount[], options: { companyNa
   return accounts.flatMap((account) =>
     account.transactions.map((t) => ({ ...t, account: account.account || account.key, currency: account.currency, ...categorise(t, options) }))
   )
+}
+
+/**
+ * A payment and its reversal (same account, same amount in and out within a week, same
+ * counterparty) cancel out; banks leave both lines on the statement but out of their totals.
+ */
+export function markReversals<T extends CategorisedTransaction & { accountKey?: string }>(list: T[]) {
+  const used = new Set<string>()
+  for (const t of list) {
+    if (t.amount >= 0 || used.has(t.id)) continue
+    const pattern = patternOf(t.description)
+    const back = list.find(
+      (u) =>
+        !used.has(u.id) &&
+        u.id !== t.id &&
+        (u.accountKey ?? u.account) === (t.accountKey ?? t.account) &&
+        Math.abs(u.amount + t.amount) < 0.005 &&
+        Math.abs(Date.parse(u.date) - Date.parse(t.date)) <= 7 * 86400000 &&
+        (patternOf(u.description) === pattern || /revers|return|refund|recall|cancel/i.test(u.description))
+    )
+    if (back) {
+      t.category = back.category = "reversed"
+      t.source = back.source = "rule"
+      used.add(t.id).add(back.id)
+    }
+  }
+  return list
 }
 
 export type HeadTotal = { category: Category; amount: number; count: number }

@@ -54,6 +54,7 @@ export function CompanyManager() {
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [paywall, setPaywall] = useState(false)
+  const [testMode, setTestMode] = useState(false)
 
   useEffect(() => {
     fetch("/api/companies", { cache: "no-store" })
@@ -62,6 +63,7 @@ export function CompanyManager() {
         if (!response.ok) throw new Error(data.error)
         setCompanies(data.companies)
         setLimit(data.limit)
+        setTestMode(Boolean(data.testMode))
       })
       .catch((cause) => setError(cause.message))
       .finally(() => setLoading(false))
@@ -155,7 +157,9 @@ export function CompanyManager() {
             <div>
               <h2 className="text-xl font-semibold">Companies</h2>
               <p className="text-sm text-muted-foreground">
-                {companies.length} of {limit} included in your plan
+                {testMode
+                  ? `Test mode: ${companies.length} of up to ${limit} companies. The live product includes one company per subscription; more are a paid add-on.`
+                  : `${companies.length} of ${limit} included in your subscription`}
               </p>
             </div>
             {companies.length > 0 && (
@@ -619,8 +623,8 @@ function Paywall({ onClose }: { onClose: () => void }) {
           Add another company
         </h3>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          Your profile includes one company. Each additional company is a paid add-on with its own
-          data input, reports, VAT and corporate tax.
+          Your subscription includes one company. Each additional company is a paid add-on with its own
+          data input, reports, VAT, corporate tax and valuation.
         </p>
         <Button className="mt-4" disabled title="Payments are not enabled yet">
           Upgrade (coming soon)

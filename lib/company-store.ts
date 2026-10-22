@@ -10,10 +10,35 @@ import {
 } from "./company"
 import { FinancialError, ownerDirectory } from "./financial-store"
 
-/** Companies included in a single profile. Further companies are a paid add-on. */
-export function companyLimit() {
-  const value = Number(process.env.FINSCOPE_COMPANY_LIMIT ?? 1)
-  return Number.isInteger(value) && value > 0 ? value : 1
+/**
+ * Companies a profile may hold. The live product includes one company per subscription;
+ * each further company is a paid add-on, recorded per profile in plan.json
+ * ({ "extraCompanies": n }) by the billing step. Test mode (development, or
+ * FINSCOPE_TEST_MODE=true) allows several companies without payment.
+ * FINSCOPE_COMPANY_LIMIT overrides both.
+ */
+export const INCLUDED_COMPANIES = 1
+export const TEST_MODE_COMPANIES = 10
+
+export function companyTestMode() {
+  return process.env.FINSCOPE_TEST_MODE === "true" || (process.env.NODE_ENV !== "production" && process.env.FINSCOPE_TEST_MODE !== "false")
+}
+
+export async function paidExtraCompanies(owner: string) {
+  try {
+    const plan = JSON.parse(await readFile(path.join(/* turbopackIgnore: true */ ownerDirectory(owner), "plan.json"), "utf8")) as { extraCompanies?: unknown }
+    const extra = Number(plan.extraCompanies)
+    return Number.isInteger(extra) && extra > 0 ? Math.min(extra, 500) : 0
+  } catch {
+    return 0
+  }
+}
+
+export async function companyLimit(owner: string) {
+  const fixed = Number(process.env.FINSCOPE_COMPANY_LIMIT)
+  if (process.env.FINSCOPE_COMPANY_LIMIT && Number.isInteger(fixed) && fixed > 0) return fixed
+  if (companyTestMode()) return TEST_MODE_COMPANIES
+  return INCLUDED_COMPANIES + (await paidExtraCompanies(owner))
 }
 
 function directory(owner: string) {
@@ -65,9 +90,9 @@ export async function saveCompany(
   const companies = await listCompanies(owner)
   const now = new Date().toISOString()
   if (!input.id) {
-    if (companies.length >= companyLimit())
+    if (companies.length >= (await companyLimit(owner)))
       throw new FinancialError(
-        "Your plan includes one company. Upgrade to add another company.",
+        "Your subscription includes one company. Each additional company is a paid add-on.",
         402
       )
     return write(owner, {

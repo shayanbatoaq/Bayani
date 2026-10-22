@@ -24,7 +24,7 @@ Extracted values always open in the form for review before saving. Uploaded file
 
 ## Company limit
 
-One company per profile. Set `FINSCOPE_COMPANY_LIMIT` to raise it. Adding beyond the limit shows the upgrade panel. Payment collection is not connected yet.
+One company per subscription in the live product; each further company is a paid add-on, recorded for a profile as `extraCompanies` in `plan.json` in its data folder. Test mode allows up to 10 companies without payment: it is on in development (`npm run dev`) and can be turned on for a production build with `FINSCOPE_TEST_MODE=true` (or off in development with `FINSCOPE_TEST_MODE=false`). `FINSCOPE_COMPANY_LIMIT` overrides both. Adding beyond the limit shows the upgrade panel. Payment collection is not connected yet.
 
 ## Storage
 

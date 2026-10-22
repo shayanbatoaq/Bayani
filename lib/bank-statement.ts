@@ -257,7 +257,7 @@ type Txn = {
   opening?: boolean
 }
 
-const BREAK = /^(total|totals|sub ?total|closing balance|account (details|title|number|no)|iban|statement of account|end of statement|page \d|carried forward|c\/f\b|transactions details|summary)/i
+const BREAK = /^(total|totals|sub ?total|closing balance|closing (statement|book|ledger) balance|account (details|title|number|no)|iban|statement of account|end of statement|page \d|carried forward|c\/f\b|transactions details|summary)/i
 const OPENING = /(opening balance|\bb\/f\b|previous balance)/i
 const CONTINUED = /(brought forward|carried forward|balance forward|\bc\/f\b)/i
 
@@ -508,6 +508,9 @@ export function parsePdfStatement(pages: TextPage[]): ParsedStatement {
         else pendingClosing = m.closing
       }
     }
+    // Statements issued page by page (each with its own opening balance) continue the same account.
+    const last = current ? [...current.rows].reverse().find((r) => r.balance !== null && !r.opening) : undefined
+    if (row.opening && current && current.currency === currency && last && row.balance !== null && close(row.balance, last.balance!)) continue
     const changed = !current || current.currency !== currency || (row.opening && current.rows.some((r) => !r.opening))
     if (changed) {
       current = { rows: [], currency, account, statedOpening: pendingOpening, statedClosing: pendingClosing }
