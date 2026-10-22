@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  Landmark,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -18,6 +19,7 @@ import {
   X,
 } from "lucide-react"
 
+import { BankStatementImport, type StatementRows } from "@/components/bank-statement-import"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -46,6 +48,7 @@ import {
   type CustomHead,
   type Side,
 } from "@/lib/ledger-heads"
+import type { LearnedRule } from "@/lib/bank-categories"
 import { createLedgerRow, formatAmount, parseAmount, type LedgerRow } from "@/lib/trial-balance"
 import { cn } from "@/lib/utils"
 
@@ -118,6 +121,7 @@ export function DataInputWorkbench({
   customHeads,
   onAddCustomHead,
   entryMode = "closing",
+  statement,
 }: {
   rows: LedgerRow[]
   onRowsChange: (rows: LedgerRow[]) => void
@@ -125,10 +129,18 @@ export function DataInputWorkbench({
   onAddCustomHead: (head: CustomHead) => Promise<void>
   /** In movement entry, depreciation is paired with accumulated depreciation automatically. */
   entryMode?: "closing" | "movement"
+  /** Bank statement upload: company context and remembered categories. */
+  statement?: {
+    companyName: string
+    period: { start: string; end: string }
+    vatRegistered: boolean
+    learned: LearnedRule[]
+    onSaveRules: (rules: LearnedRule[]) => Promise<void>
+  }
 }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const amountInput = useRef<HTMLInputElement>(null)
-  const [mode, setMode] = useState<"upload" | "manual" | null>(rows.length ? null : null)
+  const [mode, setMode] = useState<"upload" | "manual" | "statement" | null>(null)
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState("")
@@ -288,11 +300,14 @@ export function DataInputWorkbench({
 
   return (
     <div className="space-y-7">
-      <div className="grid gap-4 sm:grid-cols-2" aria-label="Trial balance entry method">
+      <div className={cn("grid gap-4", statement ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2")} aria-label="Trial balance entry method">
         {(
           [
             { value: "upload", title: "Upload template", subtitle: "Fill the trial balance template and upload it (XLSX or CSV)", icon: UploadCloud, tone: "bg-emerald-50 text-emerald-800" },
             { value: "manual", title: "Enter manually", subtitle: "Pick each head from the list and enter its balance", icon: PenLine, tone: "bg-amber-50 text-amber-800" },
+            ...(statement
+              ? ([{ value: "statement", title: "Upload bank statements", subtitle: "PDF or Excel from any UAE bank: lines are read, checked and sorted for you", icon: Landmark, tone: "bg-sky-50 text-sky-800" }] as const)
+              : []),
           ] as const
         ).map(({ value, title, subtitle, icon: Icon, tone }) => (
           <button
@@ -414,6 +429,35 @@ export function DataInputWorkbench({
             </div>
           )}
         </section>
+      )}
+
+      {mode === "statement" && statement && (
+        <BankStatementImport
+          companyName={statement.companyName}
+          period={statement.period}
+          entryMode={entryMode}
+          vatRegistered={statement.vatRegistered}
+          learned={statement.learned}
+          onSaveRules={statement.onSaveRules}
+          hasRows={rows.length > 0}
+          onApply={async (entries: StatementRows, how, summary) => {
+            // Heads the standard list does not have are added as the company's own heads.
+            for (const entry of entries) {
+              const known = ledgerHeads.some((h) => h.name.toLowerCase() === entry.ledgerName.toLowerCase()) || customHeads.some((h) => h.name.toLowerCase() === entry.ledgerName.toLowerCase())
+              if (!known) await onAddCustomHead({ name: entry.ledgerName, scheduleKey: entry.scheduleKey })
+            }
+            const imported = entries.map((entry) => ({
+              ...createLedgerRow({ ledgerName: entry.ledgerName, amount: entry.amount }),
+              // VAT Control is reported by its sign (owed to or by the FTA); every other head keeps its category.
+              scheduleKey: entry.ledgerName === "VAT Control" ? resolveSchedule(entry.ledgerName, entry.amount, customHeads) || entry.scheduleKey : entry.scheduleKey,
+            }))
+            onRowsChange(how === "append" ? [...rows, ...imported] : imported)
+            setNotice(summary)
+            setError("")
+            setPage(1)
+            setMode(null)
+          }}
+        />
       )}
 
       {mode === "manual" && (

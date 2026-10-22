@@ -98,6 +98,11 @@ export const companyExtrasSchema = z.object({
   /** VAT 201 returns uploaded or entered, by period id (validated in lib/vat-filings.ts). */
   vatFilings: z.record(z.string(), z.unknown()).default({}),
   vatSettings: z.object({ taxYearStartMonth: z.number().int().min(1).max(12).optional() }).default({}),
+  /** Bank statement lines the user has categorised, remembered by counterparty for the next upload. */
+  bankRules: z
+    .array(z.object({ pattern: z.string().trim().min(1).max(120), category: z.string().max(40) }))
+    .max(3000)
+    .default([]),
   /** Company logo shown on reports (file kept next to the company record). */
   logo: z.object({ type: z.enum(["png", "jpeg"]), updatedAt: z.string().max(40) }).nullable().default(null),
   /** Corporate tax return answers by year (validated in lib/ct-return.ts). */

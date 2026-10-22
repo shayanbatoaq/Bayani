@@ -157,6 +157,18 @@ export function FinancialDataInput() {
     setCompanies((current) => current.map((item) => (item.id === company.id ? data.company : item)))
   }
 
+  async function saveBankRules(rules: { pattern: string; category: string }[]) {
+    if (!company) return
+    const response = await fetch("/api/companies/extras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: company.id, bankRules: rules }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error)
+    setCompanies((current) => current.map((item) => (item.id === company.id ? data.company : item)))
+  }
+
   function useTrialBalanceEquity() {
     if (!statements) return
     setOpening({
@@ -302,6 +314,13 @@ export function FinancialDataInput() {
             customHeads={company.customHeads}
             onAddCustomHead={addCustomHead}
             entryMode={entryMode}
+            statement={{
+              companyName: company.name,
+              period: period!,
+              vatRegistered: Boolean(company.vat.trn),
+              learned: company.bankRules ?? [],
+              onSaveRules: saveBankRules,
+            }}
           />
 
           {entryMode === "movement" && prior && resolved && (

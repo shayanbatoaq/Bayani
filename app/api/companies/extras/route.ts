@@ -15,6 +15,7 @@ const bodySchema = z.object({
   ctAnswers: ctAnswerStoreSchema.optional(),
   vatFilings: vatFilingsStoreSchema.refine((v) => Object.keys(v).length <= 400, "Too many VAT returns.").optional(),
   vatSettings: vatSettingsSchema.optional(),
+  bankRules: companyExtrasSchema.shape.bankRules.optional(),
 })
 
 export async function POST(request: Request) {
