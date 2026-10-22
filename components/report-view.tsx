@@ -28,7 +28,7 @@ export function ReportView({ model }: { model: ReportModel }) {
   const ended = `for the year ended ${model.periodEndText}`
   return (
     <div className="space-y-4">
-      <div role="tablist" aria-label="Statements" className="flex gap-1 overflow-x-auto border-b">
+      <div role="tablist" aria-label="Statements" className="track">
         {TABS.map((item) => (
           <button
             key={item.key}
@@ -36,10 +36,7 @@ export function ReportView({ model }: { model: ReportModel }) {
             type="button"
             aria-selected={tab === item.key}
             onClick={() => setTab(item.key)}
-            className={cn(
-              "-mb-px shrink-0 border-b-2 border-transparent px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
-              tab === item.key && "border-primary text-foreground"
-            )}
+            className="track-item"
           >
             {item.label}
           </button>
@@ -112,9 +109,13 @@ export function ReportView({ model }: { model: ReportModel }) {
 
 function Heading({ model, title }: { model: ReportModel; title: string }) {
   return (
-    <header className="mb-5">
-      <p className="font-bold">{model.companyName}</p>
-      <p className="font-bold uppercase">{title}</p>
+    <header className="mb-5 flex items-end gap-4">
+      <div className="flex-1">
+        <p className="font-bold">{model.companyName}</p>
+        <p className="font-bold uppercase">{title}</p>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {model.logo ? <img src={model.logo} alt="" className="max-h-10 max-w-32 object-contain" /> : null}
     </header>
   )
 }

@@ -3,32 +3,48 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * FinScope design tokens.
+ * Ink: the navigation rail and insight surfaces. Paper: the working area.
+ * Cobalt carries actions; lagoon marks insight and good news; saffron warns.
+ */
 :root {
-  --background: #e9eef1;
-  --foreground: #172734;
+  --ink: #0d1b2e;
+  --ink-2: #14273f;
+  --ink-3: #1d3352;
+  --cobalt: #2f5bff;
+  --cobalt-deep: #2347d6;
+  --lagoon: #12b5a6;
+  --saffron: #e89a00;
+  --lagoon-wash: #e5f7f5;
+  --saffron-wash: #fff3d9;
+  --cobalt-wash: #eaf0ff;
+
+  --background: #f3f5f9;
+  --foreground: #16233a;
   --card: #ffffff;
-  --card-foreground: #172734;
+  --card-foreground: #16233a;
   --popover: #ffffff;
-  --popover-foreground: #172734;
-  --primary: #2e4455;
+  --popover-foreground: #16233a;
+  --primary: #2f5bff;
   --primary-foreground: #ffffff;
-  --secondary: #eef6f5;
-  --secondary-foreground: #203542;
-  --muted: #dce6eb;
-  --muted-foreground: #5c6d78;
-  --accent: #d7e8e6;
-  --accent-foreground: #203542;
-  --destructive: #b42318;
+  --secondary: #eef2f9;
+  --secondary-foreground: #1b2b45;
+  --muted: #e7ecf4;
+  --muted-foreground: #5b6a82;
+  --accent: #e5f7f5;
+  --accent-foreground: #0e4f49;
+  --destructive: #d92d20;
   --destructive-foreground: #ffffff;
-  --border: #c9d6dd;
-  --input: #d4e0e6;
-  --ring: #2e4455;
-  --chart-1: #2e4455;
-  --chart-2: #4b9c96;
-  --chart-3: #c99232;
-  --chart-4: #6b7f8d;
-  --chart-5: #7f5f45;
-  --radius: 0.5rem;
+  --border: #dde4ef;
+  --input: #d6deeb;
+  --ring: #2f5bff;
+  --chart-1: #2f5bff;
+  --chart-2: #12b5a6;
+  --chart-3: #e89a00;
+  --chart-4: #6b7a93;
+  --chart-5: #8b5cf6;
+  --radius: 0.625rem;
 }
 
 @theme inline {
@@ -56,28 +72,269 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --color-ink: var(--ink);
+  --color-cobalt: var(--cobalt);
+  --color-lagoon: var(--lagoon);
+  --color-saffron: var(--saffron);
+  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-sora), var(--font-plex), ui-sans-serif, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius-xs: calc(var(--radius) * 0.5);
   --radius-sm: calc(var(--radius) * 0.75);
   --radius-md: calc(var(--radius) * 0.875);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-xl: calc(var(--radius) * 1.6);
 }
 
 * {
   border-color: var(--border);
 }
 
+html {
+  -webkit-font-smoothing: antialiased;
+}
+
 body {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(75, 156, 150, 0.18), transparent 34rem),
-    linear-gradient(180deg, #f6f9fa 0%, var(--background) 38%, #dde7ec 100%);
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-feature-settings: "tnum" 0;
+  background-color: var(--background);
+  /* A faint measurement grid, like graph paper, under the working area. */
+  background-image:
+    radial-gradient(60rem 30rem at 100% -10%, rgba(47, 91, 255, 0.09), transparent 70%),
+    radial-gradient(circle at 1px 1px, rgba(22, 35, 58, 0.07) 1px, transparent 0);
+  background-size: auto, 22px 22px;
+  background-attachment: fixed;
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.tabular-nums, td, .font-mono {
+  font-variant-numeric: tabular-nums;
 }
 
 ::selection {
-  background: rgba(46, 68, 85, 0.18);
+  background: rgba(47, 91, 255, 0.18);
+}
+
+:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 2px;
+}
+
+/* ---------- surfaces ---------- */
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 1px 0 rgba(13, 27, 46, 0.03), 0 12px 32px -18px rgba(29, 51, 82, 0.25);
+}
+
+/* The insight surface: ink with a quiet signal glow in one corner. */
+.insight-panel {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  border-radius: 22px;
+  background:
+    radial-gradient(28rem 16rem at 100% 0%, rgba(18, 181, 166, 0.22), transparent 70%),
+    radial-gradient(30rem 18rem at 0% 100%, rgba(47, 91, 255, 0.28), transparent 70%),
+    linear-gradient(160deg, var(--ink-2), var(--ink));
+  box-shadow: 0 24px 48px -28px rgba(13, 27, 46, 0.7);
+}
+.insight-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(180deg, black, transparent 80%);
+}
+.insight-panel > * {
+  position: relative;
+}
+.insight {
+  display: flex;
+  gap: 0.65rem;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid rgba(255, 255, 255, 0.25);
+}
+.insight-alert { border-left-color: #ff6b5e; color: #ff9b91; }
+.insight-warning { border-left-color: var(--saffron); color: #ffc65a; }
+.insight-info { border-left-color: var(--cobalt); color: #8fa8ff; }
+.insight-good { border-left-color: var(--lagoon); color: #5fe0d3; }
+
+/* ---------- segmented track (tabs) ---------- */
+
+.track {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px;
+  border-radius: 14px;
+  background: #e6ebf4;
+  box-shadow: inset 0 1px 2px rgba(13, 27, 46, 0.08);
+}
+.track-item {
+  flex-shrink: 0;
+  border-radius: 10px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+.track-item:hover {
+  color: var(--foreground);
+}
+.track-item[aria-selected="true"],
+.track-item[aria-current="page"],
+.track-item[aria-current="step"],
+.track-item[aria-pressed="true"] {
+  color: #fff;
+  background: linear-gradient(180deg, var(--ink-3), var(--ink));
+  box-shadow: 0 6px 14px -8px rgba(13, 27, 46, 0.8), inset 0 -2px 0 var(--lagoon);
+}
+
+/* ---------- selectable tiles ---------- */
+
+.tile {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 1rem 1.1rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.tile:hover {
+  border-color: rgba(47, 91, 255, 0.45);
+}
+.tile-active {
+  border-color: var(--cobalt);
+  box-shadow: 0 0 0 3px rgba(47, 91, 255, 0.14), 0 16px 28px -20px rgba(47, 91, 255, 0.7);
+}
+.tile-active::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--cobalt), var(--lagoon));
+}
+
+/* Large choice targets (upload / enter manually). */
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 13rem;
+  border-radius: 18px;
+  border: 1.5px dashed #c3cee2;
+  background: linear-gradient(180deg, #fff, #f7f9fd);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.choice:hover,
+.choice-over {
+  border-color: var(--cobalt);
+  background: linear-gradient(180deg, #fff, var(--cobalt-wash));
+}
+
+/* ---------- navigation signal ---------- */
+
+.nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.66);
+  transition: color 160ms ease, background-color 160ms ease;
+}
+.nav-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+.nav-icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+.nav-link[aria-current="page"] {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+}
+.nav-link[aria-current="page"] .nav-icon {
+  background: linear-gradient(135deg, var(--cobalt), var(--lagoon));
+  box-shadow: 0 0 18px rgba(47, 91, 255, 0.55);
+}
+/* The signal trace: a lit bar on the rail edge next to the open section. */
+.nav-link[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -0.75rem;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--cobalt), var(--lagoon));
+  box-shadow: 0 0 12px var(--cobalt);
+}
+
+/* Mobile dock */
+.dock-link {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border-radius: 14px;
+  padding: 0.45rem 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+}
+.dock-link[aria-current="page"] {
+  color: #fff;
+  background: linear-gradient(160deg, rgba(47, 91, 255, 0.9), rgba(18, 181, 166, 0.85));
+  box-shadow: 0 8px 18px -8px rgba(47, 91, 255, 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+/* Landing: the route line draws once on load. */
+.trace {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: trace 1.6s 0.2s cubic-bezier(0.6, 0, 0.2, 1) forwards;
+}
+@keyframes trace {
+  to {
+    stroke-dashoffset: 0;
+  }
 }

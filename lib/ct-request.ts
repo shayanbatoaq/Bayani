@@ -17,5 +17,5 @@ export async function ctReturnFromRequest(request: Request) {
   const ret = ctReturns(company, records, readAnswerStore(company.ctAnswers)).find((item) => item.year === year)
   if (!ret) throw new FinancialError(`No saved data for ${year}.`, 404)
   if (!ret.inScope) throw new FinancialError(`${year} is not subject to corporate tax.`)
-  return { company, ret, filename: `${company.name.replace(/[^A-Za-z0-9]+/g, "-")}-Corporate-Tax-Return-${year}` }
+  return { company, ret, owner, filename: `${company.name.replace(/[^A-Za-z0-9]+/g, "-")}-Corporate-Tax-Return-${year}` }
 }

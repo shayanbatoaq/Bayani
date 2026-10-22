@@ -1,250 +1,562 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { AlertCircle, FileDown, FileSpreadsheet, Info, Loader2, Plus, Save, X } from "lucide-react"
+import { useMemo, useRef, useState } from "react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileUp,
+  Info,
+  Loader2,
+  Lightbulb,
+  PencilLine,
+  RefreshCw,
+  Save,
+  Trash2,
+  UploadCloud,
+  X,
+} from "lucide-react"
 
 import { CompanyPicker, Loading, NoData, useTaxData } from "@/components/tax-workbench"
 import { Button } from "@/components/ui/button"
-import { emirates, type Company } from "@/lib/company"
+import { monthNames } from "@/lib/company"
+import { readDocument, type ReadProgress } from "@/lib/document-reader"
 import {
-  FOOTER,
-  VAT_RULES,
-  classify,
-  locationOf,
-  readVatAnswers,
-  registrationCheck,
-  vatLines,
-  vatReturns,
-  type VatAnswers,
-  type VatPeriodAnswers,
-  type VatProfile,
-  type VatReturn,
-} from "@/lib/vat-return"
+  BOXES,
+  analyse,
+  filingFor,
+  parseVat201,
+  readFilings,
+  taxYearStartMonth,
+  totals,
+  vatYears,
+  withTotals,
+  type BoxKey,
+  type Column,
+  type Insight,
+  type VatFiling,
+  type VatPeriodSlot,
+  type VatSettings,
+} from "@/lib/vat-filings"
 import { cn } from "@/lib/utils"
 
-const aed = (n: number) => (Math.round(n * 100) / 100 || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const dmy = (iso: string) => iso.split("-").reverse().join("/")
-const TREATMENT: Record<string, string> = { standard: "5%", zero: "0%", exempt: "Exempt", oos: "Out of scope", rcServices: "Reverse charge", rcImport: "Import (RC)", rcDomestic: "Domestic RC" }
+const aed = (n: number | undefined) => (Math.round((n ?? 0) * 100) / 100 || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const whole = (n: number) => Math.round(n).toLocaleString("en-US")
+const dmy = (iso?: string) => (iso ? iso.split("-").reverse().join("/") : "")
+const today = () => new Date().toISOString().slice(0, 10)
 
 export function VatWorkbench() {
   const data = useTaxData()
-  const { company, companyRecords, setCompanies } = data
-  const [edits, setEdits] = useState<{ companyId: string; answers: VatAnswers } | null>(null)
-  const [periodId, setPeriodId] = useState("")
-  const [tab, setTab] = useState<"return" | "working" | "profile">("return")
-  const [saving, setSaving] = useState(false)
-  const [downloading, setDownloading] = useState<"" | "pdf" | "excel">("")
+  const { company, setCompanies } = data
+  const [yearKey, setYearKey] = useState("")
+  const [slotId, setSlotId] = useState("")
+  const [draft, setDraft] = useState<{ slotId: string; filing: VatFiling; warnings: string[] } | null>(null)
+  const [busy, setBusy] = useState("")
   const [error, setError] = useState("")
-  const [message, setMessage] = useState("")
 
-  const saved = useMemo(() => readVatAnswers(company?.vatAnswers), [company])
-  const answers = edits && edits.companyId === company?.id ? edits.answers : saved
-  const dirty = Boolean(edits && edits.companyId === company?.id && JSON.stringify(edits.answers) !== JSON.stringify(saved))
-  const returns = useMemo(() => (company ? vatReturns(company, companyRecords, answers) : []), [company, companyRecords, answers])
-  const registration = useMemo(() => (company ? registrationCheck(company, companyRecords, answers) : null), [company, companyRecords, answers])
-  const withData = returns.filter((r) => r.coverage !== "No data")
-  const selected = returns.find((r) => r.period.id === periodId) ?? withData.at(-1) ?? returns.at(-1) ?? null
+  const filings = useMemo(() => readFilings(company?.vatFilings), [company])
+  const settings: VatSettings = useMemo(() => company?.vatSettings ?? {}, [company])
+  const years = useMemo(() => (company ? vatYears(company, settings, filings) : []), [company, settings, filings])
+  const year = years.find((y) => y.key === yearKey) ?? years.at(-1)
+  const analysis = useMemo(() => (company && year ? analyse(company, years, filings, year.key) : null), [company, years, filings, year])
+  const slot = year?.periods.find((p) => p.id === slotId) ?? year?.periods.find((p) => p.registered && !filingFor(p, filings) && p.end < today()) ?? year?.periods.find((p) => p.registered) ?? year?.periods[0]
 
-  function update(next: VatAnswers) {
-    if (!company) return
-    setEdits({ companyId: company.id, answers: next })
-    setMessage("")
-  }
-  const setProfile = (patch: Partial<VatProfile>) => update({ ...answers, profile: { ...answers.profile, ...patch } })
-  const setPeriod = (id: string, patch: Partial<VatPeriodAnswers>) =>
-    update({ ...answers, periods: { ...answers.periods, [id]: { ...(answers.periods[id] ?? {}), ...patch } } })
-
-  async function save(): Promise<boolean> {
+  async function persist(patch: { vatFilings?: Record<string, VatFiling>; vatSettings?: VatSettings }) {
     if (!company) return false
-    setSaving(true)
     setError("")
-    try {
-      const response = await fetch("/api/companies/extras", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: company.id, vatAnswers: answers }),
-      })
-      const body = await response.json()
-      if (!response.ok) throw new Error(body.error)
-      setCompanies((list) => list.map((item) => (item.id === company.id ? body.company : item)))
-      setEdits(null)
-      setMessage("Saved.")
-      return true
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save.")
+    const response = await fetch("/api/companies/extras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: company.id, ...patch }),
+    })
+    const body = await response.json()
+    if (!response.ok) {
+      setError(body.error ?? "Could not save.")
       return false
-    } finally {
-      setSaving(false)
     }
-  }
-
-  async function download(kind: "pdf" | "excel") {
-    if (!company || !selected) return
-    if (dirty && !(await save())) return
-    setDownloading(kind)
-    setError("")
-    try {
-      const response = await fetch(`/api/vat/${kind}?companyId=${company.id}&period=${selected.period.id}`)
-      if (!response.ok) throw new Error((await response.json()).error)
-      const url = URL.createObjectURL(await response.blob())
-      const anchor = document.createElement("a")
-      anchor.href = url
-      anchor.download = `${company.name.replace(/[^A-Za-z0-9]+/g, "-")}-VAT-201-${selected.period.end}.${kind === "pdf" ? "pdf" : "xlsx"}`
-      anchor.click()
-      setTimeout(() => URL.revokeObjectURL(url), 30_000)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Download failed.")
-    } finally {
-      setDownloading("")
-    }
+    setCompanies((list) => list.map((item) => (item.id === company.id ? body.company : item)))
+    return true
   }
 
   if (data.loading) return <Loading />
-  if (!company) return <NoData title="No data" text="Add your company on the Dashboard first." href="/dashboard" action="Go to Dashboard" />
-  if (!companyRecords.length)
-    return <NoData title="No VAT data" text="No trial balance has been saved yet. Save a year in Data Input." href="/data-input" action="Go to Data Input" />
-  if (!company.vat.trn || !company.vat.effectiveDate)
-    return (
-      <div className="space-y-4">
-        {registration && <Registration text={registration.result} rule={registration.rule} />}
-        <NoData title="Not VAT registered" text="This company has no VAT TRN and effective date. Add them on the Dashboard (from the VAT certificate) to prepare VAT returns." href="/dashboard" action="Update company" />
-      </div>
-    )
+  if (!company) return <NoData title="No company yet" text="Add your company on the Dashboard first." href="/dashboard" action="Go to Dashboard" />
+  if (!company.vat.trn)
+    return <NoData title="Not VAT registered" text="Add the VAT TRN, effective date and return period from the VAT certificate on the Dashboard to keep your VAT returns here." href="/dashboard" action="Update company" />
+  if (!year || !slot) return null
+
+  const filing = filingFor(slot, filings)
+  const startMonth = taxYearStartMonth(company, settings)
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="space-y-7">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+        <div className="flex flex-wrap items-end gap-x-8 gap-y-3 text-sm">
           <Fact label="Company" value={company.name} />
           <Fact label="VAT TRN" value={company.vat.trn} />
-          <Fact label="Return period" value={returns[0]?.stagger ?? ""} />
-          <Fact label="Location" value={locationOf(company, answers.profile).replace("_", " ")} />
-        </dl>
+          <Fact label="Returns" value={company.vat.frequency === "monthly" ? "Monthly" : "Quarterly"} />
+          <label className="space-y-1">
+            <span className="block text-xs text-muted-foreground">Tax year starts in</span>
+            <select
+              className="h-9 rounded-lg border bg-card px-2 text-sm font-medium"
+              value={startMonth}
+              onChange={async (e) => {
+                setBusy("settings")
+                await persist({ vatSettings: { taxYearStartMonth: Number(e.target.value) } })
+                setBusy("")
+                setYearKey("")
+                setSlotId("")
+              }}
+            >
+              {monthNames.map((name, i) => (
+                <option key={name} value={i + 1}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <CompanyPicker companies={data.companies} companyId={data.companyId} onChange={data.setCompanyId} />
       </div>
-      {registration && <Registration text={registration.result} rule={registration.rule} />}
 
-      <div className="flex gap-1 border-b">
-        {(
-          [
-            ["return", "VAT 201 return"],
-            ["working", "Working & commentary"],
-            ["profile", "VAT profile & classification"],
-          ] as const
-        ).map(([key, label]) => (
+      <div role="tablist" aria-label="Tax year" className="track">
+        {years.map((y) => (
           <button
-            key={key}
+            key={y.key}
+            role="tab"
             type="button"
-            onClick={() => setTab(key)}
-            className={cn("-mb-px border-b-2 border-transparent px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground", tab === key && "border-primary text-foreground")}
+            aria-selected={y.key === year.key}
+            className="track-item"
+            onClick={() => {
+              setYearKey(y.key)
+              setSlotId("")
+              setDraft(null)
+            }}
           >
-            {label}
+            {y.label}
           </button>
         ))}
       </div>
 
-      {tab !== "profile" && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">VAT return period</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {returns.map((r) => (
-              <button
-                key={r.period.id}
-                type="button"
-                onClick={() => setPeriodId(r.period.id)}
-                className={cn(
-                  "shrink-0 rounded-lg border bg-white px-3 py-2 text-left text-xs shadow-sm hover:border-primary/60",
-                  selected?.period.id === r.period.id && "border-primary ring-1 ring-primary",
-                  r.coverage === "No data" && "opacity-50"
-                )}
-              >
-                <span className="block font-semibold">
-                  {dmy(r.period.start)} – {dmy(r.period.end)}
-                </span>
-                <span className="mt-0.5 block text-muted-foreground">
-                  {r.coverage === "No data" ? "No data" : `${r.payable >= 0 ? "Payable" : "Refund"} AED ${aed(Math.abs(r.payable))}`}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {analysis && <Insights analysis={analysis} yearLabel={year.label} />}
 
-      {tab === "return" && selected && (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={cn("grid gap-3", year.periods.length > 4 ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-6" : "grid-cols-2 lg:grid-cols-4")}>
+        {year.periods.map((p) => (
+          <QuarterTile
+            key={p.id}
+            slot={p}
+            filing={filingFor(p, filings)}
+            active={p.id === slot.id}
+            onClick={() => {
+              setSlotId(p.id)
+              setDraft(null)
+              setError("")
+            }}
+          />
+        ))}
+      </div>
+
+      <section className="panel space-y-5 p-5 sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-display text-xl font-semibold">{slot.label}</h2>
             <p className="text-sm text-muted-foreground">
-              {selected.coverage === "Actual totals" ? "Using actual period totals you entered." : selected.coverage === "Estimated" ? "Estimated from the saved trial balance." : selected.coverage === "Partial data" ? "Partly estimated: saved data does not cover the whole period." : "No saved data covers this period."}
+              {dmy(slot.start)} – {dmy(slot.end)} · due {dmy(slot.dueDate)}
             </p>
-            <div className="flex gap-2">
-              <Button onClick={() => download("pdf")} disabled={Boolean(downloading)}>
-                {downloading === "pdf" ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
-                VAT 201 PDF
+          </div>
+          {filing && !draft && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDraft({ slotId: slot.id, filing, warnings: [] })}>
+                <PencilLine className="size-4" /> Edit
               </Button>
-              <Button variant="outline" onClick={() => download("excel")} disabled={Boolean(downloading)}>
-                {downloading === "excel" ? <Loader2 className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
-                Excel
+              <UploadButton
+                label="Replace"
+                icon={<RefreshCw className="size-4" />}
+                onRead={(parsed) => setDraft({ slotId: slot.id, ...prepare(parsed, slot) })}
+                onError={setError}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive"
+                disabled={busy === "delete"}
+                onClick={async () => {
+                  setBusy("delete")
+                  const next = { ...filings }
+                  for (const [id, f] of Object.entries(next)) if (id === slot.id || f.periodEnd === slot.end) delete next[id]
+                  await persist({ vatFilings: next })
+                  setBusy("")
+                }}
+              >
+                <Trash2 className="size-4" /> Delete
               </Button>
             </div>
-          </div>
-          <ActualTotals ret={selected} answers={answers.periods[selected.period.id] ?? {}} onChange={(patch) => setPeriod(selected.period.id, patch)} />
-          <Vat201 company={company} ret={selected} answers={answers} onPeriod={(patch) => setPeriod(selected.period.id, patch)} onProfile={setProfile} />
-        </>
-      )}
-      {tab === "working" && selected && <Working ret={selected} />}
-      {tab === "profile" && <Profile company={company} records={companyRecords} answers={answers} onProfile={setProfile} />}
+          )}
+        </div>
 
-      <div className="fixed inset-x-4 bottom-20 z-20 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur lg:bottom-4 lg:left-[19rem]">
-        <Button onClick={save} disabled={!dirty || saving}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          Save VAT answers
-        </Button>
-        <span className="text-sm text-muted-foreground">{dirty ? "Unsaved changes — figures already reflect them." : "All saved."}</span>
-        {message && <span className="text-sm text-emerald-800">{message}</span>}
-        {error && <span role="alert" className="text-sm text-destructive">{error}</span>}
-        {selected && (
-          <span className="ml-auto text-sm font-semibold">
-            {dmy(selected.period.end)}: {selected.payable >= 0 ? "payable" : "refundable"} AED {aed(Math.abs(selected.payable))}
-          </span>
+        {!slot.registered && <p className="text-sm text-muted-foreground">The company was not yet VAT registered in this period.</p>}
+
+        {slot.registered && !filing && !draft && (
+          <div className="grid gap-4 md:grid-cols-2">
+            <UploadZone onRead={(parsed) => setDraft({ slotId: slot.id, ...prepare(parsed, slot) })} onError={setError} />
+            <button
+              type="button"
+              onClick={() => setDraft({ slotId: slot.id, filing: emptyFiling(slot), warnings: [] })}
+              className="choice group"
+            >
+              <PencilLine className="size-7 text-primary" strokeWidth={1.5} />
+              <span className="font-display text-lg font-semibold">Enter manually</span>
+              <span className="text-sm text-muted-foreground">Type the figures from your VAT 201 return into the form.</span>
+            </button>
+          </div>
         )}
-      </div>
+
+        {draft && draft.slotId === slot.id && (
+          <FilingForm
+            initial={draft.filing}
+            warnings={draft.warnings}
+            saving={busy === "save"}
+            onCancel={() => setDraft(null)}
+            onSave={async (f) => {
+              setBusy("save")
+              const next = { ...filings }
+              for (const [id, old] of Object.entries(next)) if (id === slot.id || old.periodEnd === slot.end) delete next[id]
+              next[slot.id] = { ...withTotals(f), savedAt: new Date().toISOString() }
+              if (await persist({ vatFilings: next })) setDraft(null)
+              setBusy("")
+            }}
+          />
+        )}
+
+        {filing && !draft && <FilingView filing={filing} />}
+        {error && (
+          <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" /> {error}
+          </p>
+        )}
+      </section>
     </div>
   )
+}
+
+function prepare(parsed: ReturnType<typeof parseVat201> & { filename: string }, slot: VatPeriodSlot) {
+  const warnings = [...parsed.warnings]
+  if (parsed.filing.periodEnd && parsed.filing.periodEnd !== slot.end)
+    warnings.unshift(`This file is the return for ${dmy(parsed.filing.periodStart)} – ${dmy(parsed.filing.periodEnd)}, not ${slot.label}. Check you picked the right quarter.`)
+  return {
+    filing: {
+      ...parsed.filing,
+      source: "upload" as const,
+      filename: parsed.filename,
+      periodStart: parsed.filing.periodStart ?? slot.start,
+      periodEnd: parsed.filing.periodEnd ?? slot.end,
+    } as VatFiling,
+    warnings,
+  }
+}
+
+function emptyFiling(slot: VatPeriodSlot): VatFiling {
+  return { periodStart: slot.start, periodEnd: slot.end, source: "manual", profitMarginScheme: false, boxes: {} }
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 font-medium capitalize">{value}</dd>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-medium">{value}</p>
     </div>
   )
 }
 
-function Registration({ text, rule }: { text: string; rule: string }) {
+function QuarterTile({ slot, filing, active, onClick }: { slot: VatPeriodSlot; filing: VatFiling | null; active: boolean; onClick: () => void }) {
+  const t = filing ? totals(filing) : null
+  const overdue = slot.registered && !filing && slot.dueDate < today()
+  const open = slot.registered && !filing && slot.end >= today()
   return (
-    <p className="flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-950">
-      <Info className="mt-0.5 size-4 shrink-0" />
-      <span>
-        <span className="font-semibold">Registration ({rule}):</span> {text}
+    <button type="button" onClick={onClick} aria-pressed={active} className={cn("tile text-left", active && "tile-active")}>
+      <span className="block font-display text-[15px] font-semibold">{slot.label}</span>
+      <span className="mt-2 flex items-center gap-1.5 text-xs">
+        {!slot.registered ? (
+          <span className="text-muted-foreground">Not registered</span>
+        ) : filing ? (
+          <>
+            <CheckCircle2 className="size-3.5 text-[var(--lagoon)]" />
+            {filing.source === "upload" ? "Return uploaded" : "Entered"}
+          </>
+        ) : overdue ? (
+          <>
+            <AlertTriangle className="size-3.5 text-[var(--saffron)]" /> Not recorded · due {dmy(slot.dueDate)}
+          </>
+        ) : open ? (
+          <span className="text-muted-foreground">Period in progress</span>
+        ) : (
+          <span className="text-muted-foreground">Due {dmy(slot.dueDate)}</span>
+        )}
       </span>
-    </p>
+      {t && (
+        <span className="mt-3 block font-display text-lg font-semibold tabular-nums">
+          {t.payable >= 0 ? "" : "−"}AED {whole(Math.abs(t.payable))}
+          <span className="ml-1 text-xs font-normal text-muted-foreground">{t.payable >= 0 ? "payable" : "refund"}</span>
+        </span>
+      )}
+    </button>
   )
 }
 
-function NumberInput({ value, onChange, placeholder = "0.00", allowEmpty }: { value: number | null | undefined; onChange: (v: number | null) => void; placeholder?: string; allowEmpty?: boolean }) {
+function Insights({ analysis, yearLabel }: { analysis: NonNullable<ReturnType<typeof analyse>>; yearLabel: string }) {
+  const max = Math.max(1, ...analysis.series.map((s) => s.sales))
+  const t = analysis.yearTotals
+  const s12 = analysis.taxableSupplies12m
+  const scaleMax = Math.max(500_000, (s12 ?? 0) * 1.15)
+  const pos = (n: number) => `${Math.min(100, (n / scaleMax) * 100)}%`
+  return (
+    <section className="insight-panel grid gap-6 p-5 sm:p-7 lg:grid-cols-[1.1fr_1fr]">
+      <div className="space-y-5">
+        <div className="flex items-center gap-2 text-sm text-[var(--lagoon)]">
+          <Lightbulb className="size-4" /> VAT insights · {yearLabel}
+        </div>
+        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {(
+            [
+              ["Taxable supplies", t.taxableSupplies],
+              ["VAT due", t.outputVat],
+              ["VAT recovered", t.recoverable],
+              [t.net >= 0 ? "Net VAT paid" : "Net refund", Math.abs(t.net)],
+            ] as [string, number][]
+          ).map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-xs text-white/60">{label}</dt>
+              <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-white">{whole(value)}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="flex h-28 items-end gap-3" aria-label="Taxable supplies by period">
+          {analysis.series.map((s) => (
+            <div key={s.label} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+              <span className="text-[11px] tabular-nums text-white/70">{s.sales ? whole(s.sales / 1000) + "k" : "—"}</span>
+              <div className="w-full rounded-t-md bg-gradient-to-t from-[var(--cobalt)] to-[var(--lagoon)]" style={{ height: `${Math.max(3, (s.sales / max) * 72)}px`, opacity: s.sales ? 1 : 0.25 }} />
+              <span className="w-full truncate text-center text-[11px] text-white/60">{s.label.replace(/ \d{4}(\/\d{4})?$/, "")}</span>
+            </div>
+          ))}
+        </div>
+        {s12 !== null && (
+          <div className="space-y-2">
+            <p className="text-xs text-white/70">
+              Taxable supplies, last 12 months{analysis.annualised ? ` (annualised from ${analysis.months12} months)` : ""}: <span className="font-semibold text-white">AED {whole(s12)}</span>
+            </p>
+            <div className="relative h-2 rounded-full bg-white/10">
+              <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[var(--cobalt)] to-[var(--lagoon)]" style={{ width: pos(s12) }} />
+              {[187_500, 375_000].map((mark) => (
+                <span key={mark} className="absolute -top-1 h-4 w-px bg-white/60" style={{ left: pos(mark) }} />
+              ))}
+            </div>
+            <div className="relative h-4 text-[10px] text-white/55">
+              <span className="absolute -translate-x-1/2" style={{ left: pos(187_500) }}>187.5k voluntary</span>
+              <span className="absolute -translate-x-1/2" style={{ left: pos(375_000) }}>375k mandatory</span>
+            </div>
+          </div>
+        )}
+      </div>
+      <ul className="space-y-2.5">
+        {analysis.insights.length === 0 && <li className="text-sm text-white/70">Upload or enter a return to see the analysis.</li>}
+        {analysis.insights.map((insight) => (
+          <InsightItem key={insight.title} insight={insight} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function InsightItem({ insight }: { insight: Insight }) {
+  const Icon = insight.level === "alert" || insight.level === "warning" ? AlertTriangle : insight.level === "good" ? CheckCircle2 : Info
+  return (
+    <li className={cn("insight", `insight-${insight.level}`)}>
+      <Icon className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-white">{insight.title}</p>
+        <p className="mt-0.5 text-[13px] leading-5 text-white/75">{insight.text}</p>
+        {insight.law && <p className="mt-1 text-[11px] text-white/45">{insight.law}</p>}
+      </div>
+    </li>
+  )
+}
+
+type Parsed = ReturnType<typeof parseVat201> & { filename: string }
+
+async function readReturn(file: File, onProgress: (p: ReadProgress | null) => void): Promise<Parsed> {
+  const text = await readDocument(file, onProgress)
+  onProgress(null)
+  return { ...parseVat201(text), filename: file.name }
+}
+
+function UploadZone({ onRead, onError }: { onRead: (parsed: Parsed) => void; onError: (message: string) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  const [progress, setProgress] = useState<ReadProgress | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [over, setOver] = useState(false)
+  async function handle(file?: File) {
+    if (!file) return
+    setBusy(true)
+    onError("")
+    try {
+      onRead(await readReturn(file, setProgress))
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : "The file could not be read.")
+    } finally {
+      setBusy(false)
+      setProgress(null)
+    }
+  }
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault()
+        setOver(true)
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setOver(false)
+        handle(e.dataTransfer.files?.[0])
+      }}
+      className={cn("choice", over && "choice-over")}
+    >
+      {busy ? <Loader2 className="size-7 animate-spin text-primary" /> : <UploadCloud className="size-7 text-primary" strokeWidth={1.5} />}
+      <span className="font-display text-lg font-semibold">Upload VAT 201 return</span>
+      <span className="text-sm text-muted-foreground">
+        {busy ? (progress ? `Reading page ${progress.page} of ${progress.pages}${progress.ocr ? " (scanned)" : ""}…` : "Reading the return…") : "The PDF downloaded from EmaraTax. Drop it here or browse."}
+      </span>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => input.current?.click()}>
+        <FileUp className="size-4" /> Browse
+      </Button>
+      <input ref={input} type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*" aria-label="VAT 201 return file" className="hidden" onChange={(e) => {
+        handle(e.target.files?.[0])
+        e.target.value = ""
+      }} />
+    </div>
+  )
+}
+
+function UploadButton({ label, icon, onRead, onError }: { label: string; icon: React.ReactNode; onRead: (parsed: Parsed) => void; onError: (message: string) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  return (
+    <>
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()}>
+        {busy ? <Loader2 className="size-4 animate-spin" /> : icon} {label}
+      </Button>
+      <input ref={input} type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*" className="hidden" onChange={async (e) => {
+        const file = e.target.files?.[0]
+        e.target.value = ""
+        if (!file) return
+        setBusy(true)
+        try {
+          onRead(await readReturn(file, () => {}))
+        } catch (cause) {
+          onError(cause instanceof Error ? cause.message : "The file could not be read.")
+        } finally {
+          setBusy(false)
+        }
+      }} />
+    </>
+  )
+}
+
+const SECTIONS: { key: "output" | "input" | "net"; title: string }[] = [
+  { key: "output", title: "VAT on sales and all other outputs" },
+  { key: "input", title: "VAT on expenses and all other inputs" },
+  { key: "net", title: "Net VAT due" },
+]
+
+function FilingForm({ initial, warnings, saving, onSave, onCancel }: { initial: VatFiling; warnings: string[]; saving: boolean; onSave: (f: VatFiling) => void; onCancel: () => void }) {
+  const [filing, setFiling] = useState<VatFiling>(initial)
+  const computed = withTotals(filing)
+  const set = (key: BoxKey, column: Column, value: number | undefined) =>
+    setFiling((f) => ({ ...f, boxes: { ...f.boxes, [key]: { ...f.boxes[key], [column]: value } } }))
+  return (
+    <div className="space-y-5">
+      {initial.source === "upload" && (
+        <p className="flex items-start gap-2 rounded-lg bg-[var(--lagoon-wash)] px-4 py-3 text-sm">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[var(--lagoon)]" />
+          Read from {initial.filename}. Check the figures against the return, then save.
+        </p>
+      )}
+      {warnings.map((w) => (
+        <p key={w} className="flex items-start gap-2 rounded-lg bg-[var(--saffron-wash)] px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[var(--saffron)]" /> {w}
+        </p>
+      ))}
+      {SECTIONS.map((section) => (
+        <div key={section.key} className="overflow-x-auto rounded-xl border">
+          <h3 className="border-b bg-secondary/60 px-4 py-2.5 text-sm font-semibold">{section.title}</h3>
+          <div className="min-w-[40rem]">
+            {section.key !== "net" && (
+              <div className="grid grid-cols-[2.5rem_1fr_9rem_9rem_9rem] gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+                <span />
+                <span>Description</span>
+                <span className="text-right">Amount (AED)</span>
+                <span className="text-right">VAT amount (AED)</span>
+                <span className="text-right">Adjustment (AED)</span>
+              </div>
+            )}
+            {BOXES.filter((b) => b.section === section.key).map((box) => (
+              <div key={box.key} className={cn("grid items-center gap-2 border-b px-4 py-1.5 text-sm last:border-0", section.key === "net" ? "grid-cols-[2.5rem_1fr_11rem]" : "grid-cols-[2.5rem_1fr_9rem_9rem_9rem]", box.computed && "bg-secondary/40 font-semibold")}>
+                <span className="text-muted-foreground">{box.key}</span>
+                <span>{box.label}</span>
+                {(section.key === "net" ? (["amount"] as Column[]) : (["amount", "vat", "adjustment"] as Column[])).map((column) =>
+                  !box.columns.includes(column) ? (
+                    <span key={column} />
+                  ) : box.computed ? (
+                    <span key={column} className="text-right tabular-nums">
+                      {aed(computed.boxes[box.key]?.[column])}
+                    </span>
+                  ) : (
+                    <Amount key={column} value={filing.boxes[box.key]?.[column]} onChange={(v) => set(box.key, column, v)} hint={column === "vat" && /^1[a-g]$|^3$|^6$/.test(box.key) ? (filing.boxes[box.key]?.amount ?? 0) * 0.05 : undefined} />
+                  )
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="rounded-xl border px-4 py-3 text-sm">
+        <p>Did you apply the profit margin scheme in respect of any supplies made during the tax period?</p>
+        <div className="mt-2 flex gap-5">
+          {[true, false].map((option) => (
+            <label key={String(option)} className="flex items-center gap-2">
+              <input type="radio" className="size-4 accent-[var(--cobalt)]" checked={filing.profitMarginScheme === option} onChange={() => setFiling((f) => ({ ...f, profitMarginScheme: option }))} />
+              {option ? "Yes" : "No"}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={() => onSave(filing)} disabled={saving}>
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save return
+        </Button>
+        <Button variant="ghost" onClick={onCancel} disabled={saving}>
+          <X className="size-4" /> Cancel
+        </Button>
+        <span className="ml-auto text-sm font-semibold">
+          {computed.boxes["14"]?.amount && computed.boxes["14"].amount < 0 ? "Refundable" : "Payable"}: AED {aed(Math.abs(computed.boxes["14"]?.amount ?? 0))}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function Amount({ value, onChange, hint }: { value: number | undefined; onChange: (v: number | undefined) => void; hint?: number }) {
   const [text, setText] = useState<string | null>(null)
-  const shown = text ?? (value === null || value === undefined || (value === 0 && !allowEmpty) ? "" : String(value))
+  const shown = text ?? (value === undefined ? "" : String(value))
   return (
     <input
       inputMode="decimal"
-      placeholder={placeholder}
-      className="h-8 w-full rounded border bg-white px-2 text-right font-mono text-sm tabular-nums"
+      placeholder={hint ? aed(hint) : "0.00"}
+      title={hint ? `5% of the amount is ${aed(hint)}` : undefined}
+      className="h-8 w-full rounded-md border bg-card px-2 text-right text-sm tabular-nums"
       value={shown}
       onChange={(e) => {
         setText(e.target.value)
         const raw = e.target.value.replace(/,/g, "").trim()
-        if (!raw) onChange(allowEmpty ? null : 0)
+        if (!raw) onChange(undefined)
         else if (Number.isFinite(Number(raw))) onChange(Number(raw))
       }}
       onBlur={() => setText(null)}
@@ -252,428 +564,38 @@ function NumberInput({ value, onChange, placeholder = "0.00", allowEmpty }: { va
   )
 }
 
-function ActualTotals({ ret, answers, onChange }: { ret: VatReturn; answers: Partial<VatPeriodAnswers>; onChange: (patch: Partial<VatPeriodAnswers>) => void }) {
+function FilingView({ filing }: { filing: VatFiling }) {
+  const full = withTotals(filing)
   return (
-    <div className="grid gap-4 rounded-lg border bg-white p-4 sm:grid-cols-[1fr_12rem_12rem] sm:items-end">
-      <div>
-        <p className="text-sm font-medium">Know the actual figures for this period?</p>
-        <p className="text-xs text-muted-foreground">Enter total sales and total purchases/expenses (excluding VAT and salaries) from your invoices. The estimate is then scaled to them, keeping each head&apos;s VAT treatment.</p>
-      </div>
-      <label className="space-y-1 text-xs">
-        Actual sales (AED)
-        <NumberInput allowEmpty placeholder="Estimate" value={answers.actualSales ?? null} onChange={(v) => onChange({ actualSales: v })} />
-      </label>
-      <label className="space-y-1 text-xs">
-        Actual expenses (AED)
-        <NumberInput allowEmpty placeholder="Estimate" value={answers.actualExpenses ?? null} onChange={(v) => onChange({ actualExpenses: v })} />
-      </label>
-      {ret.coverage === "Actual totals" && <p className="text-xs text-emerald-800 sm:col-span-3">Actual totals in use. Clear the fields to go back to the estimate.</p>}
-    </div>
-  )
-}
-
-function Vat201({
-  company,
-  ret,
-  answers,
-  onPeriod,
-  onProfile,
-}: {
-  company: Company
-  ret: VatReturn
-  answers: VatAnswers
-  onPeriod: (patch: Partial<VatPeriodAnswers>) => void
-  onProfile: (patch: Partial<VatProfile>) => void
-}) {
-  const pa = answers.periods[ret.period.id] ?? {}
-  const output = ret.boxes.filter((b) => /^(1[a-g]|[2-8])$/.test(b.box))
-  const input = ret.boxes.filter((b) => ["9", "10", "11"].includes(b.box))
-  const net = ret.boxes.filter((b) => ["12", "13", "14"].includes(b.box))
-  const profile = { profitMarginScheme: false, ...answers.profile }
-  const boxInput = (key: keyof VatPeriodAnswers, value: number) => <NumberInput value={value} onChange={(v) => onPeriod({ [key]: v ?? 0 })} />
-  return (
-    <div className="space-y-5">
-      <section className="overflow-hidden rounded-lg border bg-white">
-        <h3 className="border-b bg-secondary/50 px-5 py-2.5 font-semibold">VAT 201 Return — Taxpayer Information</h3>
-        <dl className="grid text-sm sm:grid-cols-2">
-          {(
-            [
-              ["TRN", company.vat.trn],
-              ["VAT Return Period", `${dmy(ret.period.start)} - ${dmy(ret.period.end)}`],
-              ["Legal Name of Entity (English)", company.name],
-              ["VAT Stagger", ret.stagger],
-              ["Emirate", company.emirate],
-              ["VAT Return Due Date", dmy(ret.period.dueDate)],
-              ["Licensing authority", company.authority],
-              ["Tax Year End", dmy(ret.taxYearEnd)],
-            ] as [string, string][]
-          ).map(([label, value]) => (
-            <div key={label} className="grid grid-cols-[12rem_1fr] border-b px-5 py-2 even:sm:border-l">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="font-medium">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <BoxTable title="VAT on Sales and All Other Outputs" rows={output} total="8" edit={(b) => (b.box === "2" ? boxInput("touristRefunds", pa.touristRefunds ?? 0) : b.box === "7" ? boxInput("importAdjustment", pa.importAdjustment ?? 0) : null)} adjust={(b) => (b.editable === "outputAdjustment" ? boxInput("outputAdjustment", pa.outputAdjustment ?? 0) : null)} />
-      <BoxTable title="VAT on Expenses and All Other Inputs" rows={input} total="11" edit={() => null} adjust={(b) => (b.box === "9" ? boxInput("inputAdjustment", pa.inputAdjustment ?? 0) : null)} />
-
-      <section className="overflow-hidden rounded-lg border bg-white">
-        <h3 className="border-b bg-secondary/50 px-5 py-2.5 font-semibold">Net VAT Due</h3>
-        {net.map((b) => (
-          <div key={b.box} className={cn("grid grid-cols-[3rem_1fr_11rem] items-center border-b px-5 py-2 text-sm", b.box === "14" && "bg-secondary/40 font-semibold")}>
-            <span>{b.box}</span>
-            <span>{b.label} (AED)</span>
-            <span className="text-right font-mono tabular-nums">{aed(b.vat)}</span>
-          </div>
-        ))}
-      </section>
-
-      <section className="rounded-lg border bg-white p-5">
-        <h3 className="font-semibold">Profit Margin Scheme</h3>
-        <div className="mt-2 rounded-md bg-[#e6e9f0] px-4 py-3 text-sm">
-          <p>Did you apply the profit margin scheme in respect of any supplies made during the tax period?</p>
-          <div className="mt-2 flex gap-5">
-            {[true, false].map((option) => (
-              <label key={String(option)} className="flex items-center gap-2">
-                <input type="radio" className="size-4" checked={profile.profitMarginScheme === option} onChange={() => onProfile({ profitMarginScheme: option })} />
-                {option ? "Yes" : "No"}
-              </label>
-            ))}
-          </div>
-        </div>
-        <h3 className="mt-5 font-semibold">Authorised Signatory</h3>
-        <div className="mt-2 grid gap-3 sm:grid-cols-3">
-          {(
-            [
-              ["signatoryName", "Name in English"],
-              ["signatoryMobile", "Mobile Number"],
-              ["signatoryEmail", "Email Address"],
-            ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="space-y-1 text-xs">
-              {label}
-              <input className="h-9 w-full rounded-md border bg-white px-2 text-sm" value={String(answers.profile[key] ?? "")} onChange={(e) => onProfile({ [key]: e.target.value })} />
-            </label>
-          ))}
-        </div>
-      </section>
-      <p className="text-xs text-muted-foreground">{FOOTER}</p>
-    </div>
-  )
-}
-
-function BoxTable({
-  title,
-  rows,
-  total,
-  edit,
-  adjust,
-}: {
-  title: string
-  rows: VatReturn["boxes"]
-  total: string
-  edit: (b: VatReturn["boxes"][number]) => React.ReactNode
-  adjust: (b: VatReturn["boxes"][number]) => React.ReactNode
-}) {
-  return (
-    <section className="overflow-x-auto rounded-lg border bg-white">
-      <h3 className="border-b bg-secondary/50 px-5 py-2.5 font-semibold">{title}</h3>
-      <div className="min-w-[44rem]">
-        <div className="grid grid-cols-[3rem_1fr_10rem_10rem_10rem] gap-2 border-b px-5 py-2 text-xs font-semibold">
-          <span />
-          <span>Description</span>
-          <span className="text-right">Amount (AED)</span>
-          <span className="text-right">VAT Amount (AED)</span>
-          <span className="text-right">Adjustment (AED)</span>
-        </div>
-        {rows.map((b) => {
-          const editor = edit(b)
-          const adjuster = adjust(b)
-          return (
-            <div key={b.box} className={cn("grid grid-cols-[3rem_1fr_10rem_10rem_10rem] items-center gap-2 border-b px-5 py-1.5 text-sm", b.box === total && "bg-secondary/40 font-semibold")}>
-              <span>{b.box}</span>
-              <span>{b.label}</span>
-              {b.box === "2" && editor ? (
-                <>
-                  <span className="text-right font-mono tabular-nums">{aed(b.amount)}</span>
-                  <span title="VAT refunded to tourists">{editor}</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-right font-mono tabular-nums">{editor && b.box === "7" ? editor : aed(b.amount)}</span>
-                  <span className="text-right font-mono tabular-nums">{b.box === "4" || b.box === "5" ? "" : aed(b.vat)}</span>
-                </>
-              )}
-              <span className="text-right font-mono tabular-nums">{adjuster ?? (["2", "3", "4", "5", "6", "7", "10"].includes(b.box) ? "" : aed(b.adjustment))}</span>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-function Working({ ret }: { ret: VatReturn }) {
-  const revenue = ret.lines.filter((l) => l.side === "revenue")
-  const expenses = ret.lines.filter((l) => l.side === "expense")
-  return (
-    <div className="space-y-5">
-      <section className="rounded-lg border bg-white p-5">
-        <h3 className="font-semibold">Summary</h3>
-        <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-          {(
-            [
-              ["Standard-rated sales", ret.totals.standard],
-              ["Zero-rated sales", ret.totals.zero],
-              ["Exempt sales", ret.totals.exempt],
-              ["Out of scope", ret.totals.oos],
-              ["Output VAT", ret.outputVat],
-              ["Recoverable input VAT", ret.recoverableVat],
-            ] as [string, number][]
-          ).map(([label, value]) => (
-            <div key={label} className="rounded-md border px-3 py-2">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="font-mono font-semibold tabular-nums">{aed(value)}</p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 space-y-2 text-sm leading-6">
-          {ret.commentary.map((text) => (
-            <p key={text}>{text}</p>
-          ))}
-        </div>
-      </section>
-      <LineTable title="Sales and other income" lines={revenue} expense={false} />
-      <LineTable title="Purchases and expenses (input VAT)" lines={expenses} expense />
-      {ret.review.length > 0 && (
-        <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
-          <h3 className="flex items-center gap-2 font-semibold">
-            <AlertCircle className="size-4" /> Needs review
-          </h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
-            {ret.review.map((text) => (
-              <li key={text}>{text}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-      <section className="rounded-lg border border-sky-200 bg-sky-50 p-5 text-sm text-sky-950">
-        <h3 className="flex items-center gap-2 font-semibold">
-          <Info className="size-4" /> Assumptions made
-        </h3>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
-          {ret.assumptions.map((text) => (
-            <li key={text}>{text}</li>
-          ))}
-        </ul>
-      </section>
-      <p className="text-xs text-muted-foreground">{FOOTER}</p>
-    </div>
-  )
-}
-
-function LineTable({ title, lines, expense }: { title: string; lines: VatReturn["lines"]; expense: boolean }) {
-  return (
-    <section className="overflow-x-auto rounded-lg border bg-white">
-      <h3 className="border-b px-5 py-2.5 font-semibold">{title}</h3>
-      <table className="w-full min-w-[56rem] text-sm">
-        <thead>
-          <tr className="border-b bg-secondary/40 text-left text-xs">
-            <th className="px-4 py-2">Description</th>
-            <th className="px-2 py-2 text-right">Amount (AED)</th>
-            <th className="px-2 py-2">Treatment</th>
-            <th className="px-2 py-2">Rule</th>
-            <th className="px-2 py-2 text-right">VAT</th>
-            {expense && <th className="px-2 py-2 text-right">Recoverable</th>}
-            <th className="px-4 py-2">Note</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={`${l.id}-${i}`} className="border-b align-top last:border-0">
-              <td className="px-4 py-2 font-medium">{l.name}</td>
-              <td className="px-2 py-2 text-right font-mono tabular-nums">{aed(l.amount)}</td>
-              <td className="px-2 py-2">{TREATMENT[l.treatment]}</td>
-              <td className="px-2 py-2 font-mono text-xs">{l.rule}</td>
-              <td className="px-2 py-2 text-right font-mono tabular-nums">{aed(l.vat)}</td>
-              {expense && (
-                <td className="px-2 py-2 text-right font-mono tabular-nums">
-                  {aed(l.recoverable)}
-                  <span className="block text-[11px] text-muted-foreground">{Math.round(l.recoverablePercent * 100)}%</span>
-                </td>
-              )}
-              <td className="px-4 py-2 text-xs text-muted-foreground">{l.reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  )
-}
-
-function Profile({ company, records, answers, onProfile }: { company: Company; records: ReturnType<typeof useTaxData>["companyRecords"]; answers: VatAnswers; onProfile: (patch: Partial<VatProfile>) => void }) {
-  const profile = answers.profile
-  const location = locationOf(company, profile)
-  // Heads from every saved year, latest amounts first.
-  const heads = useMemo(() => {
-    const sorted = [...records].sort((a, b) => b.year - a.year)
-    const map = new Map<string, ReturnType<typeof vatLines>[number]>()
-    for (const record of sorted) for (const line of vatLines(record, records.find((r) => r.year === record.year - 1) ?? null)) if (!map.has(line.id)) map.set(line.id, line)
-    return [...map.values()].sort((a, b) => (a.side === b.side ? b.annual - a.annual : a.side === "revenue" ? -1 : 1))
-  }, [records])
-  const split = profile.emirateSplit ?? {}
-  const setHead = (id: string, value: VatProfile["heads"][string] | null) => {
-    const next = { ...(profile.heads ?? {}) }
-    if (value) next[id] = value
-    else delete next[id]
-    onProfile({ heads: next })
-  }
-  return (
-    <div className="space-y-5">
-      <section className="grid gap-4 rounded-lg border bg-white p-5 md:grid-cols-3">
-        <label className="space-y-1 text-sm">
-          Location for VAT
-          <select className="h-9 w-full rounded-md border bg-white px-2" value={profile.locationType ?? "auto"} onChange={(e) => onProfile({ locationType: e.target.value as VatProfile["locationType"] })}>
-            <option value="auto">Automatic ({isFz(company) ? "free zone" : "mainland"})</option>
-            <option value="mainland">Mainland</option>
-            <option value="free_zone">Free zone (not designated)</option>
-            <option value="designated_zone">Designated Zone</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-2 text-sm md:pt-6">
-          <input type="checkbox" className="size-4" checked={Boolean(profile.taxGroup)} onChange={(e) => onProfile({ taxGroup: e.target.checked })} />
-          Member of a VAT tax group
-        </label>
-        <div className="text-sm md:col-span-3">
-          <p>Standard-rated sales by emirate of the establishment making the supply (Box 1a–1g), %</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-            {emirates.map((emirate) => (
-              <label key={emirate} className="space-y-1 text-xs">
-                {emirate}
-                <NumberInput
-                  placeholder={Object.keys(split).length ? "0" : emirate === (company.emirate || "Dubai") ? "100" : "0"}
-                  value={split[emirate] ?? null}
-                  allowEmpty
-                  onChange={(v) => {
-                    const next = { ...split }
-                    if (v === null) delete next[emirate]
-                    else next[emirate] = Math.max(0, Math.min(100, v))
-                    onProfile({ emirateSplit: next })
-                  }}
-                />
-              </label>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="overflow-x-auto rounded-lg border bg-white">
-        <h3 className="border-b px-5 py-2.5 font-semibold">How each head is treated for VAT</h3>
-        <p className="px-5 pt-3 text-xs text-muted-foreground">
-          Defaults come from the head name, your business activity ({company.businessActivity || "not recorded"}) and location. Change the rule or split a head between treatments by percentage.
-        </p>
-        <table className="mt-2 w-full min-w-[60rem] text-sm">
-          <thead>
-            <tr className="border-y bg-secondary/40 text-left text-xs">
-              <th className="px-4 py-2">Head</th>
-              <th className="px-2 py-2 text-right">Latest year (AED)</th>
-              <th className="px-2 py-2">VAT treatment</th>
-              <th className="px-2 py-2">Used for</th>
-              <th className="px-4 py-2">Why</th>
-            </tr>
-          </thead>
-          <tbody>
-            {heads.map((line) => {
-              const auto = classify(line, company.businessActivity, location)
-              const saved = profile.heads?.[line.id]
-              const splits = saved?.splits ?? auto.splits
-              const options = VAT_RULES.filter((rule) => rule.side === line.side)
-              const change = (index: number, patch: Partial<{ rule: string; percent: number }>) =>
-                setHead(line.id, { usedFor: saved?.usedFor ?? "auto", splits: splits.map((s, i) => (i === index ? { ...s, ...patch } : s)) })
-              return (
-                <tr key={line.id} className="border-b align-top last:border-0">
-                  <td className="px-4 py-2 font-medium">
-                    {line.name}
-                    <span className="block text-[11px] font-normal text-muted-foreground">{line.side === "revenue" ? "Income" : "Expense"}</span>
-                  </td>
-                  <td className="px-2 py-2 text-right font-mono tabular-nums">{aed(line.annual)}</td>
-                  <td className="space-y-1 px-2 py-2">
-                    {splits.map((part, i) => (
-                      <div key={i} className="flex items-center gap-1">
-                        <select className="h-8 w-80 rounded border bg-white px-1 text-xs" value={part.rule} onChange={(e) => change(i, { rule: e.target.value })}>
-                          {options.map((rule) => (
-                            <option key={rule.id} value={rule.id}>
-                              {rule.id} · {rule.label}
-                            </option>
-                          ))}
-                        </select>
-                        {splits.length > 1 && (
-                          <>
-                            <span className="w-16">
-                              <NumberInput value={part.percent} onChange={(v) => change(i, { percent: Math.max(0, Math.min(100, v ?? 0)) })} />
-                            </span>
-                            <span className="text-xs">%</span>
-                            <button type="button" aria-label="Remove split" className="p-1 text-muted-foreground hover:text-destructive" onClick={() => setHead(line.id, { usedFor: saved?.usedFor ?? "auto", splits: splits.filter((_, j) => j !== i) })}>
-                              <X className="size-3.5" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                    <div className="flex gap-3 text-xs">
-                      {splits.length < 6 && (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 text-primary hover:underline"
-                          onClick={() => {
-                            const rest = Math.max(0, 100 - splits.reduce((t, s) => t + s.percent, 0))
-                            const first = splits.length === 1 ? [{ ...splits[0], percent: 50 }] : splits
-                            setHead(line.id, { usedFor: saved?.usedFor ?? "auto", splits: [...first, { rule: options[0].id, percent: splits.length === 1 ? 50 : rest }] })
-                          }}
-                        >
-                          <Plus className="size-3" /> Split
-                        </button>
-                      )}
-                      {saved && (
-                        <button type="button" className="text-muted-foreground hover:underline" onClick={() => setHead(line.id, null)}>
-                          Reset to default
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-2 py-2">
-                    {line.side === "expense" ? (
-                      <select
-                        className="h-8 rounded border bg-white px-1 text-xs"
-                        value={saved?.usedFor ?? "auto"}
-                        onChange={(e) => setHead(line.id, { splits, usedFor: e.target.value as "auto" })}
-                      >
-                        <option value="auto">Automatic</option>
-                        <option value="taxable">Taxable supplies</option>
-                        <option value="exempt">Exempt supplies</option>
-                        <option value="mixed">Both (apportion)</option>
-                      </select>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-muted-foreground">
-                    {saved ? "Set by you." : auto.reason}
-                    {!saved && auto.flag && <span className="mt-1 block text-amber-800">{auto.flag}</span>}
-                  </td>
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        {filing.source === "upload" ? `Uploaded from ${filing.filename ?? "the return"}` : "Entered manually"}
+        {filing.submittedOn ? ` · submitted ${dmy(filing.submittedOn)}` : ""}
+        {filing.reference ? ` · reference ${filing.reference}` : ""}
+        {filing.savedAt ? ` · saved ${dmy(filing.savedAt.slice(0, 10))}` : ""}
+      </p>
+      {SECTIONS.map((section) => (
+        <div key={section.key} className="overflow-x-auto rounded-xl border">
+          <h3 className="border-b bg-secondary/60 px-4 py-2.5 text-sm font-semibold">{section.title}</h3>
+          <table className="w-full min-w-[40rem] text-sm">
+            <tbody>
+              {BOXES.filter((b) => b.section === section.key).map((box) => (
+                <tr key={box.key} className={cn("border-b last:border-0", box.computed && "bg-secondary/40 font-semibold")}>
+                  <td className="w-10 px-4 py-1.5 text-muted-foreground">{box.key}</td>
+                  <td className="py-1.5">{box.label}</td>
+                  {(section.key === "net" ? (["amount"] as Column[]) : (["amount", "vat", "adjustment"] as Column[])).map((column) => (
+                    <td key={column} className="w-36 px-3 py-1.5 text-right tabular-nums">
+                      {box.columns.includes(column) ? aed(full.boxes[box.key]?.[column]) : ""}
+                    </td>
+                  ))}
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </section>
-      <p className="text-xs text-muted-foreground">{FOOTER}</p>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      <p className="text-sm">Profit margin scheme applied: {filing.profitMarginScheme ? "Yes" : "No"}</p>
     </div>
   )
 }
 
-function isFz(company: Company) {
-  return locationOf(company, {}) === "free_zone"
-}

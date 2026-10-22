@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { companyExtrasSchema } from "@/lib/company"
 import { ctAnswerStoreSchema } from "@/lib/ct-return"
-import { vatAnswersSchema } from "@/lib/vat-return"
+import { vatFilingsStoreSchema, vatSettingsSchema } from "@/lib/vat-filings"
 import { updateCompanyExtras } from "@/lib/company-store"
 import { financialErrorResponse, financialOwner } from "@/lib/financial-store"
 import { assertSameOrigin, readJson } from "@/lib/request-guard"
@@ -13,7 +13,8 @@ const bodySchema = z.object({
   customHeads: companyExtrasSchema.shape.customHeads.optional(),
   vatOverrides: companyExtrasSchema.shape.vatOverrides.optional(),
   ctAnswers: ctAnswerStoreSchema.optional(),
-  vatAnswers: vatAnswersSchema.optional(),
+  vatFilings: vatFilingsStoreSchema.refine((v) => Object.keys(v).length <= 400, "Too many VAT returns.").optional(),
+  vatSettings: vatSettingsSchema.optional(),
 })
 
 export async function POST(request: Request) {

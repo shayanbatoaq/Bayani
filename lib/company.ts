@@ -95,8 +95,11 @@ export const companyExtrasSchema = z.object({
     .max(500)
     .default([]),
   vatOverrides: z.record(z.string().max(40), vatOverrideSchema).default({}),
-  /** VAT profile and period answers (validated in lib/vat-return.ts). */
-  vatAnswers: z.record(z.string(), z.unknown()).default({}),
+  /** VAT 201 returns uploaded or entered, by period id (validated in lib/vat-filings.ts). */
+  vatFilings: z.record(z.string(), z.unknown()).default({}),
+  vatSettings: z.object({ taxYearStartMonth: z.number().int().min(1).max(12).optional() }).default({}),
+  /** Company logo shown on reports (file kept next to the company record). */
+  logo: z.object({ type: z.enum(["png", "jpeg"]), updatedAt: z.string().max(40) }).nullable().default(null),
   /** Corporate tax return answers by year (validated in lib/ct-return.ts). */
   ctAnswers: z.record(z.string().regex(/^\d{4}$/), z.record(z.string().max(60), z.union([z.string().max(300), z.number(), z.boolean()]))).default({}),
   documents: z

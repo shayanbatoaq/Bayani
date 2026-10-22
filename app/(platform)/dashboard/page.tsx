@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/page-header"
 export default function DashboardPage() {
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Dashboard" title="Your companies" />
+      <PageHeader title="Your companies" description="Add a company from its licence, MOA and tax certificates. Everything else builds on these details." />
       <CompanyManager />
     </div>
   )

@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/page-header"
 export default function CorporateTaxPage() {
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Corporate Tax" title="Corporate tax return" />
+      <PageHeader title="Corporate tax return" description="The EmaraTax return built from your figures, with the computation explained." />
       <CtWorkbench />
     </div>
   )

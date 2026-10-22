@@ -5,7 +5,7 @@ import { ReportsWorkbench } from "@/components/reports-workbench"
 export default function ReportsPage() {
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Reports" title="Financial statements" />
+      <PageHeader title="Financial statements" description="Statements and schedules for each saved year, ready as PDF or Excel." />
       <Suspense>
         <ReportsWorkbench />
       </Suspense>

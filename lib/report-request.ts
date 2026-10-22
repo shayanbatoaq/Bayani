@@ -1,5 +1,5 @@
 import "server-only"
-import { getCompany } from "./company-store"
+import { getCompany, logoDataUri } from "./company-store"
 import { FinancialError, financialOwner, listFinancialRecords } from "./financial-store"
 import { buildReport } from "./report-model"
 
@@ -19,6 +19,8 @@ export async function reportFromRequest(request: Request, { forDownload = false 
   if (forDownload && current.statements.unmapped.length)
     throw new FinancialError("Classify every trial balance head in Data Input before downloading.")
   const model = buildReport(company, records, year)
+  // PDFs embed the logo; the on-screen view loads it by URL.
+  model.logo = forDownload ? await logoDataUri(owner, company) : company.logo ? `/api/companies/logo?id=${company.id}&v=${encodeURIComponent(company.logo.updatedAt)}` : null
   const filename = `${company.name.replace(/[^A-Za-z0-9]+/g, "-")}-Financial-Statements-${year}`
   return { model, filename, query }
 }

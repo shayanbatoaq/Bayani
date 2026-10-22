@@ -117,17 +117,17 @@ export function CtWorkbench() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-end gap-6">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Company</p>
+            <p className="text-xs text-muted-foreground">Company</p>
             <p className="mt-1 text-lg font-semibold">{company.name}</p>
             <p className="text-xs text-muted-foreground">CT TRN {company.ct.trn || "not recorded"}</p>
           </div>
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tax year</p>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <p className="text-xs text-muted-foreground">Tax year</p>
+            <div role="tablist" aria-label="Tax year" className="track mt-1">
               {years.map((option) => (
-                <Button key={option} size="sm" variant={option === selected ? "default" : "outline"} onClick={() => setYear(option)}>
+                <button key={option} type="button" role="tab" aria-selected={option === selected} className="track-item" onClick={() => setYear(option)}>
                   {option}
-                </Button>
+                </button>
               ))}
             </div>
           </div>
@@ -150,13 +150,13 @@ export function CtWorkbench() {
       {ret.inScope && (
         <>
           <Notices ret={ret} />
-          <nav aria-label="Return steps" className="flex gap-1 overflow-x-auto border-b">
+          <nav aria-label="Return steps" className="track">
             <TabButton active={tab === "commentary"} onClick={() => setTab("commentary")}>
               Computation &amp; commentary
             </TabButton>
             {ret.steps.map((step) => (
               <TabButton key={step.number} active={tab === step.number} onClick={() => setTab(step.number)}>
-                <span className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full bg-secondary text-[11px] font-semibold">{step.number}</span>
+                <span className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full bg-black/10 text-[11px] font-semibold">{step.number}</span>
                 {step.title}
               </TabButton>
             ))}
@@ -206,15 +206,7 @@ export function CtWorkbench() {
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "step" : undefined}
-      className={cn(
-        "-mb-px flex shrink-0 items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground",
-        active && "border-primary text-foreground"
-      )}
-    >
+    <button type="button" onClick={onClick} aria-current={active ? "step" : undefined} className="track-item flex items-center">
       {children}
     </button>
   )
@@ -227,9 +219,9 @@ function Header({ ret }: { ret: CtReturn }) {
     ["Corporate Tax Year End", dmy(ret.periodEnd)],
   ]
   return (
-    <div className="overflow-hidden rounded-lg border bg-white">
+    <div className="panel overflow-hidden">
       <div className="grid sm:grid-cols-4">
-        <div className="flex flex-col justify-center gap-1 bg-[#22344a] px-5 py-4 text-white">
+        <div className="flex flex-col justify-center gap-1 bg-[var(--ink)] px-5 py-4 text-white">
           <span className="text-sm font-semibold">Filing Period</span>
           <span className="text-xs text-white/75">{ret.regime}</span>
         </div>
@@ -450,14 +442,14 @@ function Row({ row, comparative, answers, onChange }: { row: FormRow; comparativ
   if (isQuestion)
     return (
       <div className="px-5 py-3">
-        <div className="max-w-3xl rounded-md border bg-[#e6e9f0] px-4 py-3">
+        <div className="max-w-3xl rounded-md border bg-secondary px-4 py-3">
           <p className="text-sm font-medium">{row.label}</p>
           <div className="mt-2 flex gap-5 text-sm">
             {[true, false].map((option) => (
               <label key={String(option)} className={cn("flex items-center gap-2", !field && "opacity-70")}>
                 <input
                   type="radio"
-                  className="size-4 accent-[#22344a]"
+                  className="size-4 accent-[var(--cobalt)]"
                   disabled={!field}
                   checked={row.value === option}
                   onChange={() => field && onChange(field.key, option)}

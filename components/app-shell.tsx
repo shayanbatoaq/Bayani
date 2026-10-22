@@ -2,144 +2,104 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import {
-  LayoutDashboard,
-  FileText,
-  Landmark,
-  LogOut,
-  Menu,
-  Receipt,
-  Upload,
-} from "lucide-react"
+import { FileText, Landmark, LayoutDashboard, LogOut, Receipt, Upload } from "lucide-react"
 
 import { BrandLogo } from "@/components/brand-logo"
-import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { cn } from "@/lib/utils"
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/data-input", label: "Data Input", icon: Upload },
+  { href: "/data-input", label: "Data Input", short: "Data", icon: Upload },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/vat", label: "VAT", icon: Receipt },
-  { href: "/corporate-tax", label: "Corporate Tax", icon: Landmark },
+  { href: "/corporate-tax", label: "Corporate Tax", short: "CT", icon: Landmark },
 ]
 
-function SignOutButton() {
+function useActive() {
+  const pathname = usePathname()
+  return (href: string) => pathname === href || pathname.startsWith(`${href}/`)
+}
+
+function SignOutButton({ compact }: { compact?: boolean }) {
   const router = useRouter()
   return (
-    <Button
-      variant="outline"
-      className="w-full justify-start"
+    <button
+      type="button"
+      className={compact ? "rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white" : "nav-link w-full"}
+      aria-label="Sign out"
       onClick={async () => {
         await getSupabaseBrowserClient()?.auth.signOut()
         router.push("/")
         router.refresh()
       }}
     >
-      <LogOut className="size-4" />
-      Sign out
-    </Button>
-  )
-}
-
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = usePathname()
-
-  return (
-    <nav className="grid gap-1">
-      {navItems.map((item) => {
-        const Icon = item.icon
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
-
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
-              active && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground"
-            )}
-          >
-            <Icon className="size-4" />
-            <span>{item.label}</span>
-          </Link>
-        )
-      })}
-    </nav>
+      {compact ? (
+        <LogOut className="size-5" />
+      ) : (
+        <>
+          <span className="nav-icon">
+            <LogOut className="size-4" />
+          </span>
+          Sign out
+        </>
+      )}
+    </button>
   )
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const isActive = useActive()
   return (
     <div className="min-h-screen">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-border/80 bg-card/92 backdrop-blur-xl lg:flex lg:flex-col">
-        <div className="flex h-20 items-center px-6">
-          <BrandLogo href="/dashboard" imageClassName="h-11" priority />
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[17rem] flex-col bg-[var(--ink)] lg:flex">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-90"
+          style={{
+            background:
+              "radial-gradient(22rem 14rem at 0% 0%, rgba(47,91,255,.28), transparent 70%), radial-gradient(18rem 18rem at 100% 100%, rgba(18,181,166,.16), transparent 70%)",
+          }}
+        />
+        <div className="relative flex h-20 items-center px-6">
+          <BrandLogo href="/dashboard" tone="light" imageClassName="h-10" priority />
         </div>
-        <Separator />
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
-          <NavLinks />
-        </div>
-        <div className="border-t border-border/80 p-4">
+        <nav aria-label="Main" className="relative grid gap-1 px-3 py-4">
+          {navItems.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href} className="nav-link" aria-current={isActive(href) ? "page" : undefined}>
+              <span className="nav-icon">
+                <Icon className="size-4" />
+              </span>
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <div className="relative mt-auto space-y-3 px-3 pb-5">
+          <p className="mx-3 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-white/60">
+            Figures are prepared from what you enter and should be reviewed before filing.
+          </p>
           <SignOutButton />
         </div>
       </aside>
 
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border/80 bg-background/88 px-4 backdrop-blur lg:hidden">
-        <BrandLogo href="/dashboard" imageClassName="h-9" />
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button size="icon" variant="outline" aria-label="Open navigation">
-              <Menu className="size-4" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-[320px]">
-            <SheetHeader>
-              <SheetTitle>
-                <BrandLogo href="/dashboard" imageClassName="h-10" />
-              </SheetTitle>
-            </SheetHeader>
-            <div className="overflow-y-auto px-3 pb-6">
-              <NavLinks />
-              <div className="mt-6">
-                <SignOutButton />
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
+      <header className="sticky top-0 z-20 flex h-14 items-center justify-between bg-[var(--ink)] px-4 lg:hidden">
+        <BrandLogo href="/dashboard" tone="light" imageClassName="h-8" />
+        <SignOutButton compact />
       </header>
 
-      <main className="min-h-screen px-4 pb-28 pt-6 sm:px-6 lg:ml-72 lg:px-8 lg:pb-10 lg:pt-8">
+      <main className="min-h-screen px-4 pb-32 pt-6 sm:px-6 lg:ml-[17rem] lg:px-10 lg:pb-12 lg:pt-10">
         <div className="mx-auto w-full max-w-7xl">{children}</div>
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/80 bg-card/94 px-2 py-2 shadow-[0_-12px_30px_rgba(46,68,85,0.08)] backdrop-blur-xl lg:hidden">
-        <div className="flex gap-1 overflow-x-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex min-w-20 flex-1 flex-col items-center gap-1 rounded-md px-2 py-2 text-xs font-medium text-muted-foreground"
-              >
-                <Icon className="size-4" />
-                {item.label}
-              </Link>
-            )
-          })}
-        </div>
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-3 bottom-3 z-30 flex gap-1 rounded-[20px] bg-[var(--ink)]/95 p-1.5 shadow-[0_18px_40px_-12px_rgba(13,27,46,.7)] ring-1 ring-white/10 backdrop-blur lg:hidden"
+      >
+        {navItems.map(({ href, label, short, icon: Icon }) => (
+          <Link key={href} href={href} className="dock-link" aria-current={isActive(href) ? "page" : undefined}>
+            <Icon className="size-5" />
+            {short ?? label}
+          </Link>
+        ))}
       </nav>
     </div>
   )

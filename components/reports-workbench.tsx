@@ -123,7 +123,7 @@ export function ReportsWorkbench() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-end gap-6">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Company</p>
+            <p className="text-xs text-muted-foreground">Company</p>
             {companies.length > 1 ? (
               <select
                 aria-label="Company"
@@ -146,12 +146,12 @@ export function ReportsWorkbench() {
             )}
           </div>
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Year</p>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <p className="text-xs text-muted-foreground">Year</p>
+            <div role="tablist" aria-label="Year" className="track mt-1">
               {savedYears.map((option) => (
-                <Button key={option} size="sm" variant={option === year ? "default" : "outline"} onClick={() => setYear(option)}>
+                <button key={option} type="button" role="tab" aria-selected={option === year} className="track-item" onClick={() => setYear(option)}>
                   {option}
-                </Button>
+                </button>
               ))}
             </div>
           </div>

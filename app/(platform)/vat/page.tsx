@@ -4,7 +4,7 @@ import { VatWorkbench } from "@/components/vat-workbench"
 export default function VatPage() {
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="VAT" title="VAT returns" />
+      <PageHeader title="VAT returns" description="Upload each VAT 201 return or type it in. FinScope keeps the tax year together and flags what needs attention." />
       <VatWorkbench />
     </div>
   )

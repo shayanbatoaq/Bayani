@@ -1,5 +1,5 @@
 import "@/lib/pdf-fonts"
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
 import type { Company } from "@/lib/company"
 import type { CtReturn, FormRow } from "@/lib/ct-return"
 
@@ -47,11 +47,13 @@ function Pair({ cells }: { cells: [string, string][] }) {
   )
 }
 
-export function CtReturnPdf({ company, ret }: { company: Company; ret: CtReturn }) {
+export function CtReturnPdf({ company, ret, logo }: { company: Company; ret: CtReturn; logo?: string | null }) {
   const answersRows = (rows: FormRow[]) => rows.filter((row) => !row.hidden)
   return (
     <Document title={`${company.name} - Corporate Tax Return ${ret.year}`} author="FinScope" creator="FinScope">
       <Page size="A4" style={s.page}>
+        {/* eslint-disable-next-line jsx-a11y/alt-text */}
+        {logo ? <Image src={logo} style={{ maxHeight: 44, maxWidth: 150, objectFit: "contain", alignSelf: "center", marginBottom: 10 }} /> : null}
         <Text style={s.title}>Corporate Tax Return</Text>
         <View style={s.table}>
           <Text style={s.band}>Corporate Tax Return Information</Text>

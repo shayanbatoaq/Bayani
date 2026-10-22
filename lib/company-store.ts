@@ -79,7 +79,9 @@ export async function saveCompany(
       customHeads: [],
       vatOverrides: {},
       ctAnswers: {},
-      vatAnswers: {},
+      logo: null,
+      vatFilings: {},
+      vatSettings: {},
       documents: input.documents ?? [],
     })
   }
@@ -103,7 +105,7 @@ export async function saveCompany(
 export async function updateCompanyExtras(
   owner: string,
   id: string,
-  patch: Partial<Pick<Company, "customHeads" | "vatOverrides" | "ctAnswers" | "vatAnswers">>
+  patch: Partial<Pick<Company, "customHeads" | "vatOverrides" | "ctAnswers" | "vatFilings" | "vatSettings" | "logo">>
 ) {
   const existing = await getCompany(owner, id)
   if (!existing) throw new FinancialError("Company not found.", 404)
@@ -121,6 +123,7 @@ export async function deleteCompany(owner: string, id: string) {
   const existing = await getCompany(owner, id)
   if (!existing) throw new FinancialError("Company not found.", 404)
   await rm(path.join(directory(owner), `${id}.json`), { force: true })
+  await removeLogoFiles(owner, id)
   let files: string[] = []
   try {
     files = await readdir(ownerDirectory(owner))
@@ -131,4 +134,51 @@ export async function deleteCompany(owner: string, id: string) {
       .map((file) => rm(path.join(ownerDirectory(owner), file), { force: true }))
   )
   return existing
+}
+
+/* ---------------------------------------------------------------- logo */
+
+const LOGO_LIMIT = 1024 * 1024
+function logoPath(owner: string, id: string, type: "png" | "jpeg") {
+  return path.join(/* turbopackIgnore: true */ ownerDirectory(owner), "logos", `${id}.${type === "png" ? "png" : "jpg"}`)
+}
+async function removeLogoFiles(owner: string, id: string) {
+  await Promise.all((["png", "jpeg"] as const).map((type) => rm(logoPath(owner, id, type), { force: true })))
+}
+
+/** Stores a PNG or JPEG logo (checked by its file signature, at most 1 MB). */
+export async function saveCompanyLogo(owner: string, id: string, bytes: Buffer) {
+  const existing = await getCompany(owner, id)
+  if (!existing) throw new FinancialError("Company not found.", 404)
+  if (bytes.length > LOGO_LIMIT) throw new FinancialError("The logo must be 1 MB or smaller.", 413)
+  const type = bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ? "png"
+    : bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      ? "jpeg"
+      : null
+  if (!type) throw new FinancialError("Upload the logo as a PNG or JPG image.", 415)
+  await mkdir(path.dirname(logoPath(owner, id, type)), { recursive: true })
+  await removeLogoFiles(owner, id)
+  await writeFile(logoPath(owner, id, type), bytes, { mode: 0o600 })
+  return updateCompanyExtras(owner, id, { logo: { type, updatedAt: new Date().toISOString() } })
+}
+
+export async function readCompanyLogo(owner: string, company: Company) {
+  if (!company.logo) return null
+  try {
+    return { type: company.logo.type, bytes: await readFile(logoPath(owner, company.id, company.logo.type)) }
+  } catch {
+    return null
+  }
+}
+
+export async function deleteCompanyLogo(owner: string, id: string) {
+  await removeLogoFiles(owner, id)
+  return updateCompanyExtras(owner, id, { logo: null })
+}
+
+/** The logo as a data URI for PDFs. */
+export async function logoDataUri(owner: string, company: Company) {
+  const logo = await readCompanyLogo(owner, company)
+  return logo ? `data:image/${logo.type};base64,${logo.bytes.toString("base64")}` : null
 }

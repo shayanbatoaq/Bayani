@@ -1,5 +1,5 @@
 import "@/lib/pdf-fonts"
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
 import type { Style } from "@react-pdf/stylesheet"
 import { reportIndex, type EquityTable, type IndexKey, type ReportModel, type Row, type Schedule } from "@/lib/report-model"
 
@@ -56,9 +56,13 @@ function PageNumber() {
 
 function Heading({ model, title }: { model: ReportModel; title: string }) {
   return (
-    <View style={{ marginBottom: 10 }}>
-      <Text style={s.company}>{model.companyName}</Text>
-      <Text style={s.title}>{title}</Text>
+    <View style={{ marginBottom: 10, flexDirection: "row", alignItems: "flex-end" }}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.company}>{model.companyName}</Text>
+        <Text style={s.title}>{title}</Text>
+      </View>
+      {/* eslint-disable-next-line jsx-a11y/alt-text */}
+      {model.logo ? <Image src={model.logo} style={{ maxHeight: 22, maxWidth: 100, objectFit: "contain", marginLeft: 12 }} /> : null}
     </View>
   )
 }
@@ -163,7 +167,9 @@ function Signature({ model, schedules = false }: { model: ReportModel; schedules
 function Cover({ model }: { model: ReportModel }) {
   return (
     <Page size="A4" style={[s.page, { fontSize: 12 }]}>
-      <View style={{ marginTop: 150, alignItems: "center" }}>
+      <View style={{ marginTop: model.logo ? 90 : 150, alignItems: "center" }}>
+        {/* eslint-disable-next-line jsx-a11y/alt-text */}
+        {model.logo ? <Image src={model.logo} style={{ maxHeight: 90, maxWidth: 220, objectFit: "contain", marginBottom: 40 }} /> : null}
         <View style={{ width: 70, borderTopWidth: 1.2, marginBottom: 18 }} />
         <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>{model.companyName}</Text>
         <Text style={[s.bold, { marginTop: 4, textAlign: "center" }]}>{model.location}</Text>

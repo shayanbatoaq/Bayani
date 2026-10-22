@@ -5,10 +5,10 @@ import Link from "next/link"
 import {
   AlertCircle,
   ArrowRight,
-  Building2,
   CheckCircle2,
   FileText,
   FileUp,
+  ImagePlus,
   Landmark,
   Loader2,
   Lock,
@@ -189,6 +189,7 @@ export function CompanyManager() {
                   setMode({ kind: "edit", company })
                 }}
                 onDelete={() => remove(company)}
+                onUpdated={(updated) => setCompanies((list) => list.map((item) => (item.id === updated.id ? updated : item)))}
               />
             ))
           )}
@@ -510,7 +511,7 @@ function DocumentUpload({ onExtracted }: { onExtracted: (extracted: Extracted) =
   )
 }
 
-function CompanyCard({ company, onEdit, onDelete }: { company: Company; onEdit: () => void; onDelete: () => Promise<void> }) {
+function CompanyCard({ company, onEdit, onDelete, onUpdated }: { company: Company; onEdit: () => void; onDelete: () => Promise<void>; onUpdated: (company: Company) => void }) {
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const facts: [string, string][] = [
@@ -540,12 +541,10 @@ function CompanyCard({ company, onEdit, onDelete }: { company: Company; onEdit: 
   return (
     <article className="rounded-xl border bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="flex size-10 items-center justify-center rounded-lg bg-secondary text-primary">
-            <Building2 className="size-5" />
-          </span>
+        <div className="flex items-center gap-4">
+          <LogoControl company={company} onUpdated={onUpdated} />
           <div>
-            <h3 className="text-lg font-semibold">{company.name}</h3>
+            <h3 className="font-display text-xl font-semibold">{company.name}</h3>
             <p className="text-sm text-muted-foreground">{company.legalForm}</p>
           </div>
         </div>
@@ -588,12 +587,12 @@ function CompanyCard({ company, onEdit, onDelete }: { company: Company; onEdit: 
       <dl className="mt-5 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
         {facts.map(([label, value]) => (
           <div key={label} className="min-w-0">
-            <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+            <dt className="text-xs text-muted-foreground">{label}</dt>
             <dd className="mt-0.5 break-words">{value || "—"}</dd>
           </div>
         ))}
         <div className="min-w-0 sm:col-span-2">
-          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Business activity</dt>
+          <dt className="text-xs text-muted-foreground">Business activity</dt>
           <dd className="mt-0.5 break-words">{company.businessActivity}</dd>
         </div>
       </dl>
@@ -630,6 +629,71 @@ function Paywall({ onClose }: { onClose: () => void }) {
       <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
         <X className="size-4" />
       </Button>
+    </div>
+  )
+}
+
+/** Company logo: shown on the dashboard and printed on the reports. */
+function LogoControl({ company, onUpdated }: { company: Company; onUpdated: (company: Company) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  async function send(init: RequestInit, url = "/api/companies/logo") {
+    setBusy(true)
+    setError("")
+    try {
+      const response = await fetch(url, init)
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error)
+      onUpdated(body.company)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not update the logo.")
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <button
+        type="button"
+        onClick={() => input.current?.click()}
+        title={company.logo ? "Change logo" : "Add your logo"}
+        className="group relative grid size-16 place-items-center overflow-hidden rounded-2xl border border-dashed border-[#c3cee2] bg-secondary/60 text-primary transition-colors hover:border-[var(--cobalt)]"
+      >
+        {busy ? (
+          <Loader2 className="size-5 animate-spin" />
+        ) : company.logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={`/api/companies/logo?id=${company.id}&v=${encodeURIComponent(company.logo.updatedAt)}`} alt={`${company.name} logo`} className="size-full object-contain p-1.5" />
+        ) : (
+          <span className="flex flex-col items-center text-[10px] font-medium leading-tight">
+            <ImagePlus className="mb-0.5 size-5" />
+            Logo
+          </span>
+        )}
+      </button>
+      {company.logo && !busy && (
+        <button type="button" className="text-[11px] text-muted-foreground hover:text-destructive" onClick={() => send({ method: "DELETE" }, `/api/companies/logo?id=${company.id}`)}>
+          Remove
+        </button>
+      )}
+      {error && <p role="alert" className="max-w-40 text-center text-[11px] text-destructive">{error}</p>}
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg"
+        aria-label="Company logo"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ""
+          if (!file) return
+          const form = new FormData()
+          form.set("id", company.id)
+          form.set("file", file)
+          send({ method: "POST", body: form })
+        }}
+      />
     </div>
   )
 }

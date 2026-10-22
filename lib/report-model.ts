@@ -46,6 +46,8 @@ export type EquityTable = {
 export type DetailItem = { label: string; lines: string[] }
 export type ReportModel = {
   companyName: string
+  /** Company logo: a data URI for PDFs, or a URL for the on-screen view. */
+  logo?: string | null
   /** Company details page shown after the index. */
   details: DetailItem[]
   /** Cover line, e.g. "DUBAI - UNITED ARAB EMIRATES". */
