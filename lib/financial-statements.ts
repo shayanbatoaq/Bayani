@@ -336,7 +336,63 @@ export const scheduleLines = [
     row: 110,
     sign: -1,
   },
+  {
+    key: "insurance",
+    label: "Insurance expense",
+    group: "Administration expenses",
+    note: 18,
+    row: 113,
+    sign: 1,
+  },
+  {
+    key: "printing",
+    label: "Printing & stationery",
+    group: "Administration expenses",
+    note: 18,
+    row: 114,
+    sign: 1,
+  },
+  {
+    key: "depreciation",
+    label: "Depreciation",
+    group: "Administration expenses",
+    note: 18,
+    row: 115,
+    sign: 1,
+  },
 ] as const
+
+export type ReportCategory =
+  | "Non-Current Assets"
+  | "Current Assets"
+  | "Non-Current Liabilities"
+  | "Current Liabilities"
+  | "Equity"
+  | "Revenue"
+  | "Cost of Sales"
+  | "Other Income"
+  | "Administrative Expenses"
+  | "Finance Costs"
+
+/** Statement and category each schedule line is reported under. */
+export function categoryOf(scheduleKey: string): {
+  statement: "BS" | "P&L"
+  category: ReportCategory
+} | null {
+  const line = scheduleLines.find((item) => item.key === scheduleKey)
+  if (!line) return null
+  const n = line.note
+  if (n === 3 || n === 4) return { statement: "BS", category: "Non-Current Assets" }
+  if (n >= 5 && n <= 9) return { statement: "BS", category: "Current Assets" }
+  if (n === 10) return { statement: "BS", category: "Non-Current Liabilities" }
+  if (n >= 11 && n <= 14) return { statement: "BS", category: "Current Liabilities" }
+  if (n === 15 || n === 20) return { statement: "BS", category: "Equity" }
+  if (n === 16) return { statement: "P&L", category: "Revenue" }
+  if (n === 17) return { statement: "P&L", category: "Cost of Sales" }
+  if (n === 18) return { statement: "P&L", category: "Administrative Expenses" }
+  if (n === 19) return { statement: "P&L", category: "Finance Costs" }
+  return { statement: "P&L", category: "Other Income" }
+}
 
 export type ScheduleKey = (typeof scheduleLines)[number]["key"]
 export type FinancialLedger = {
@@ -358,6 +414,8 @@ export type FinancialInput = {
   currency: string
   rows: FinancialLedger[]
   openingEquity: OpeningEquity | null
+  /** "closing" (default): rows are closing balances. "movement": rows are the year's movements. */
+  entryMode?: "closing" | "movement"
 }
 export type ReportLine = {
   label: string
@@ -389,6 +447,8 @@ export type FinancialRecord = FinancialInput & {
   revision: number
   updatedAt: string
   statements: FinancialOutput
+  /** Closing balances the statements were built from (equal to rows in closing mode). */
+  closingRows?: FinancialLedger[]
 }
 
 export function suggestSchedule(
@@ -417,9 +477,9 @@ export function suggestSchedule(
     [/accru|provision|salar.*payable|wages.*payable/i, "accruals"],
     [/advance.*supplier/i, "supplierAdvances"],
     [/advance.*customer/i, "customerAdvances"],
+    [/other income|interest (income|received|earned)|income from (interest|deposits?)|dividend (income|received)/i, "otherIncome"],
     [/deposit/i, "deposits"],
     [/cost of (goods sold|sales)/i, "costOfSales"],
-    [/other income/i, "otherIncome"],
     [/revenue|^sales$/i, "sales"],
     [/bank charges|interest|finance cost/i, "finance"],
     [/exchange|revaluation/i, "exchange"],
@@ -434,8 +494,11 @@ export function suggestSchedule(
     [/travel/i, "travel"],
     [/utilit/i, "utilities"],
     [/vehicle/i, "vehicle"],
-    [/office|printing|stationery|postage/i, "office"],
-    [/expense|insurance|commission|discount given/i, "otherExpenses"],
+    [/depreciation|amortis|amortiz/i, "depreciation"],
+    [/insurance/i, "insurance"],
+    [/printing|stationery|stationary/i, "printing"],
+    [/office|postage|courier/i, "office"],
+    [/expense|commission|discount given/i, "otherExpenses"],
     [/cash/i, "cash"],
     [/bank/i, "bank"],
   ]
@@ -856,5 +919,145 @@ export function calculateFinancials(input: FinancialInput): FinancialOutput {
     balanceDifference: difference,
     closingEquity,
     netProfit: profit,
+  }
+}
+
+/** Amount of one schedule line, in reporting sign (assets/expenses and credits as positive). */
+export function scheduleValue(output: FinancialOutput, key: ScheduleKey) {
+  const line = scheduleLines.find((item) => item.key === key)!
+  return output.schedules.find((item) => item.row === line.row)?.amount ?? 0
+}
+
+export type CashFlowLine = {
+  label: string
+  amount: number | null
+  kind?: "heading" | "subtotal" | "total"
+}
+export type CashFlowOutput = {
+  lines: CashFlowLine[]
+  netChange: number
+  openingCash: number
+  closingCash: number
+  difference: number
+  firstYear: boolean
+}
+
+/**
+ * Indirect-method cash flow. Opening balances come from the prior saved year;
+ * without one, opening balances are taken as nil (first period presented).
+ */
+export function calculateCashFlow(
+  current: FinancialOutput,
+  prior: FinancialOutput | null
+): CashFlowOutput {
+  const round = (n: number) => Math.round(n * 100) / 100
+  const now = (...keys: ScheduleKey[]) =>
+    round(keys.reduce((total, key) => total + scheduleValue(current, key), 0))
+  const was = (...keys: ScheduleKey[]) =>
+    prior
+      ? round(keys.reduce((total, key) => total + scheduleValue(prior, key), 0))
+      : 0
+  const delta = (...keys: ScheduleKey[]) => round(now(...keys) - was(...keys))
+  const advances = [
+    "deposits",
+    "supplierAdvances",
+    "prepayments",
+    "taxReceivable",
+    "otherReceivables",
+  ] as const
+  const accruals = [
+    "accruals",
+    "customerAdvances",
+    "taxPayable",
+    "otherPayables",
+  ] as const
+  const profit = current.netProfit
+  const depreciation = now("depreciation")
+  const beforeWorkingCapital = round(profit + depreciation)
+  const workingCapital: [string, number][] = [
+    ["(Increase) / decrease in inventories", -delta("inventory")],
+    ["(Increase) / decrease in trade receivables", -delta("receivables")],
+    [
+      "(Increase) / decrease in advances, deposits and prepayments",
+      -delta(...advances),
+    ],
+    ["(Increase) / decrease in due from related parties", -delta("relatedReceivable")],
+    ["Increase / (decrease) in trade payables", delta("payables")],
+    ["Increase / (decrease) in accruals and other payables", delta(...accruals)],
+    ["Increase / (decrease) in due to related parties", delta("relatedPayable")],
+    ["Increase / (decrease) in employee end of service benefits", delta("endOfService")],
+  ]
+  const operating = round(
+    beforeWorkingCapital + workingCapital.reduce((t, [, n]) => t + n, 0)
+  )
+  const ppe = -round(delta("ppe") + depreciation)
+  const financialAssets = -delta("financialAssets")
+  const investing = round(ppe + financialAssets)
+  const priorRetained = prior
+    ? round(prior.closingEquity.retained + prior.netProfit)
+    : 0
+  const financing: [string, number][] = [
+    ["Capital introduced / (withdrawn)", delta("capital")],
+    [
+      "Increase / (decrease) in long-term borrowings",
+      delta("directorLoan", "longTermLiabilities"),
+    ],
+    ["Net movement in shareholders current account", delta("shareholder")],
+    ["Dividends / drawings paid", -now("dividends")],
+    ["Other movements in retained earnings", round(now("retained") - priorRetained)],
+  ]
+  const financingTotal = round(financing.reduce((t, [, n]) => t + n, 0))
+  const netChange = round(operating + investing + financingTotal)
+  const openingCash = was("cash", "bank")
+  const closingCash = now("cash", "bank")
+  const lines: CashFlowLine[] = [
+    { label: "Cash flows from operating activities", amount: null, kind: "heading" },
+    { label: "Net profit / (loss) for the year", amount: profit },
+    { label: "Adjustment for depreciation", amount: depreciation },
+    {
+      label: "Operating profit before changes in working capital",
+      amount: beforeWorkingCapital,
+      kind: "subtotal",
+    },
+    ...workingCapital.map(([label, amount]) => ({ label, amount })),
+    {
+      label: "Net cash from / (used in) operating activities (A)",
+      amount: operating,
+      kind: "subtotal",
+    },
+    { label: "Cash flows from investing activities", amount: null, kind: "heading" },
+    { label: "Purchase of property, plant and equipment (net)", amount: ppe },
+    { label: "(Increase) / decrease in financial assets", amount: financialAssets },
+    {
+      label: "Net cash from / (used in) investing activities (B)",
+      amount: investing,
+      kind: "subtotal",
+    },
+    { label: "Cash flows from financing activities", amount: null, kind: "heading" },
+    ...financing.map(([label, amount]) => ({ label, amount })),
+    {
+      label: "Net cash from / (used in) financing activities (C)",
+      amount: financingTotal,
+      kind: "subtotal",
+    },
+    {
+      label: "Net increase / (decrease) in cash and cash equivalents (A+B+C)",
+      amount: netChange,
+      kind: "total",
+    },
+    { label: "Cash and cash equivalents at beginning of the year", amount: openingCash },
+    {
+      label: "Cash and cash equivalents at end of the year",
+      amount: round(openingCash + netChange),
+      kind: "total",
+    },
+  ]
+  return {
+    lines,
+    netChange,
+    openingCash,
+    closingCash,
+    difference: round(openingCash + netChange - closingCash),
+    firstYear: !prior,
   }
 }

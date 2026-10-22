@@ -6,6 +6,7 @@ const protectedPrefixes = [
   "/profile",
   "/regulatory",
   "/data-input",
+  "/reports",
   "/vat",
   "/corporate-tax",
   "/audit",
@@ -15,9 +16,10 @@ const protectedPrefixes = [
 ]
 
 export function proxy(request: NextRequest) {
-  const authConfigured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  )
+  // Log in is a single click into the workspace; sign-in is only enforced when required.
+  const authConfigured =
+    process.env.FINSCOPE_REQUIRE_LOGIN === "true" &&
+    Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 
   if (!authConfigured) {
     return NextResponse.next()
@@ -49,6 +51,7 @@ export const config = {
     "/profile/:path*",
     "/regulatory/:path*",
     "/data-input/:path*",
+    "/reports/:path*",
     "/vat/:path*",
     "/corporate-tax/:path*",
     "/audit/:path*",

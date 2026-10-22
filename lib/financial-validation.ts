@@ -39,6 +39,7 @@ export const financialInputSchema = z
       )
       .min(1)
       .max(10000),
+    entryMode: z.enum(["closing", "movement"]).default("closing"),
     revision: z.number().int().nonnegative().default(0),
   })
   .superRefine((data, context) => {

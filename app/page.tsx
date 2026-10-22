@@ -1,118 +1,71 @@
-import Link from "next/link"
-import {
-  ArrowRight,
-  BarChart3,
-  Building2,
-  CheckCircle2,
-  ClipboardCheck,
-  ShieldCheck,
-  Sparkles,
-} from "lucide-react"
-
 import { BrandLogo } from "@/components/brand-logo"
-import { BenchmarkChart, ScoreDistribution } from "@/components/charts"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { landingFeatures, benchmarkRows, scoreCards } from "@/lib/mock-data"
+import { QuickLogin } from "@/components/quick-login"
 
-const featureIcons = [BarChart3, ShieldCheck, ClipboardCheck, Building2, CheckCircle2, Sparkles]
+const route = [
+  { label: "Company documents", text: "Trade licence, MOA and tax certificates read for you." },
+  { label: "Trial balance", text: "Each year entered as balances or movements." },
+  { label: "Financial statements", text: "Balance sheet to schedules, as PDF or Excel." },
+  { label: "Corporate tax", text: "The full return, computed and explained." },
+  { label: "VAT", text: "Your filed returns, tracked and analysed." },
+]
 
 export default function Home() {
   return (
-    <main className="min-h-screen">
-      <header className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <BrandLogo priority imageClassName="h-12" />
-        <nav className="flex items-center gap-2">
-          <Button asChild variant="ghost">
-            <Link href="/login">Login</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/register">Start Assessment</Link>
-          </Button>
-        </nav>
+    <main className="min-h-screen bg-[var(--ink)] text-white">
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0"
+        style={{
+          background:
+            "radial-gradient(48rem 30rem at 85% -10%, rgba(47,91,255,.35), transparent 70%), radial-gradient(40rem 28rem at -10% 110%, rgba(18,181,166,.22), transparent 70%)",
+        }}
+      />
+      <header className="relative mx-auto flex h-20 max-w-7xl items-center justify-between px-5 sm:px-8">
+        <BrandLogo tone="light" priority imageClassName="h-10" />
+        <QuickLogin size="default" />
       </header>
 
-      <section className="relative overflow-hidden border-y border-border/80 bg-[#e9eef1]">
-        <div className="absolute inset-0 opacity-80">
-          <div className="mx-auto grid h-full max-w-7xl grid-cols-6 gap-4 px-4 py-10 sm:px-6 lg:px-8">
-            {scoreCards.map((score) => (
-              <div key={score.label} className="hidden rounded-lg border border-white/80 bg-white/60 shadow-sm md:block" />
-            ))}
-            <div className="col-span-6 hidden rounded-lg border border-white/80 bg-white/50 shadow-sm lg:block" />
-          </div>
-        </div>
-        <div className="relative mx-auto flex min-h-[calc(100vh-5rem)] max-w-7xl flex-col justify-center px-4 py-20 text-center sm:px-6 lg:px-8">
-          <Badge variant="outline" className="mx-auto mb-6 border-primary/20 bg-white/70 text-primary">
-            AI commentary. System calculations. Rules-driven intelligence.
-          </Badge>
-          <h1 className="mx-auto max-w-5xl text-4xl font-semibold tracking-normal text-primary sm:text-6xl lg:text-7xl">
-            Upload Your Trial Balance. Receive CFO, Audit, Tax and Business Intelligence in Minutes.
+      <section className="relative mx-auto grid max-w-7xl gap-14 px-5 pb-20 pt-8 sm:px-8 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:pt-16">
+        <div>
+          <h1 className="max-w-2xl font-display text-[2.6rem] font-semibold leading-[1.08] sm:text-6xl">
+            Accounts and UAE tax, prepared from your own figures.
           </h1>
-          <p className="mx-auto mt-6 max-w-3xl text-base leading-7 text-muted-foreground sm:text-lg">
-            FinScope AI is an AI CFO, Audit, Tax and Business Intelligence platform for business owners who need trusted financial clarity without waiting weeks for manual analysis.
+          <p className="mt-6 max-w-xl text-lg leading-8 text-white/70">
+            FinScope reads your company documents and trial balance, then builds the statements, the corporate tax return and a running view of your VAT — with every figure explained.
           </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <Button asChild size="lg">
-              <Link href="/profile">
-                Start Assessment
-                <ArrowRight className="size-4" />
-              </Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link href="/login">Login</Link>
-            </Button>
+          <div className="mt-9 flex flex-wrap items-center gap-4">
+            <QuickLogin className="h-12 px-6 text-base" label="Open your workspace" />
+            <span className="text-sm text-white/50">No card details needed</span>
           </div>
         </div>
+
+        {/* The route a company's figures travel, drawn once as a signal trace. */}
+        <ol className="relative space-y-1 rounded-[26px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur sm:p-8">
+          <svg aria-hidden className="absolute left-[2.35rem] top-10 h-[calc(100%-6.5rem)] w-1 sm:left-[2.85rem]" preserveAspectRatio="none" viewBox="0 0 2 100">
+            <line x1="1" y1="0" x2="1" y2="100" pathLength={100} stroke="url(#trace)" strokeWidth="2" className="trace" />
+            <defs>
+              <linearGradient id="trace" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="100">
+                <stop offset="0" stopColor="#2f5bff" />
+                <stop offset="1" stopColor="#12b5a6" />
+              </linearGradient>
+            </defs>
+          </svg>
+          {route.map((step, i) => (
+            <li key={step.label} className="relative flex gap-5 py-3">
+              <span className="relative z-10 grid size-9 shrink-0 place-items-center rounded-full bg-[var(--ink-3)] font-display text-sm font-semibold ring-2 ring-[var(--cobalt)]/60">
+                {i + 1}
+              </span>
+              <span>
+                <span className="block font-display font-semibold">{step.label}</span>
+                <span className="mt-0.5 block text-sm text-white/60">{step.text}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-4 py-16 sm:px-6 lg:grid-cols-3 lg:px-8">
-        {landingFeatures.map((feature, index) => {
-          const Icon = featureIcons[index]
-
-          return (
-            <Card key={feature.title}>
-              <CardHeader>
-                <div className="mb-2 flex size-10 items-center justify-center rounded-lg bg-secondary text-primary">
-                  <Icon className="size-5" />
-                </div>
-                <CardTitle>{feature.title}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-6 text-muted-foreground">{feature.description}</p>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </section>
-
-      <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Dashboard preview
-            </p>
-            <h2 className="mt-2 text-3xl font-semibold text-foreground">Enterprise-grade financial intelligence workspace</h2>
-          </div>
-          <Button asChild variant="outline">
-            <Link href="/dashboard">View dashboard</Link>
-          </Button>
-        </div>
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Industry Benchmarking</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <BenchmarkChart data={benchmarkRows} />
-            </CardContent>
-          </Card>
-          <ScoreDistribution data={scoreCards.map((score) => ({ label: score.label.replace(" Readiness", ""), value: score.value }))} />
-        </div>
-      </section>
-
-      <footer className="border-t border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
-        FinScope AI outputs are indicative, require professional review, and are not professional advice.
+      <footer className="relative border-t border-white/10 px-5 py-8 text-center text-sm text-white/45">
+        Outputs are prepared from the figures you provide and should be reviewed before filing.
       </footer>
     </main>
   )

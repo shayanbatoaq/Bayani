@@ -1,5 +1,6 @@
-import { AuthForm } from "@/components/auth-form"
+import { redirect } from "next/navigation"
 
+// Sign-in is passwordless (email link or social), so there is no password to reset.
 export default function ForgotPasswordPage() {
-  return <AuthForm mode="forgot" />
+  redirect("/login")
 }

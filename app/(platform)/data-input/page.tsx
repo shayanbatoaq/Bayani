@@ -4,10 +4,7 @@ import { FinancialDataInput } from "@/components/financial-data-input"
 export default function DataInputPage() {
   return (
     <div className="space-y-8">
-      <PageHeader
-        eyebrow="Data Input"
-        title="Trial balance"
-      />
+      <PageHeader title="Trial balance by year" description="Enter each year as closing balances or as movements, head by head." />
       <FinancialDataInput />
     </div>
   )

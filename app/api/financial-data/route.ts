@@ -6,6 +6,7 @@ import {
   financialErrorResponse,
   FinancialError,
 } from "@/lib/financial-store"
+import { assertSameOrigin } from "@/lib/request-guard"
 
 export const runtime = "nodejs"
 
@@ -27,21 +28,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const origin = request.headers.get("origin")
-    if (origin) {
-      let originUrl: URL
-      try {
-        originUrl = new URL(origin)
-      } catch {
-        throw new FinancialError("Invalid request origin.", 403)
-      }
-      const host = request.headers.get("host") ?? new URL(request.url).host
-      if (
-        !["http:", "https:"].includes(originUrl.protocol) ||
-        originUrl.host !== host
-      )
-        throw new FinancialError("Invalid request origin.", 403)
-    }
+    assertSameOrigin(request)
     const owner = await financialOwner()
     const text = await request.text()
     if (text.length > 4_000_000)

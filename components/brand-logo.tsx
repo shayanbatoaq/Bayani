@@ -8,6 +8,8 @@ type BrandLogoProps = {
   imageClassName?: string
   href?: string
   priority?: boolean
+  /** "light" for dark backgrounds. */
+  tone?: "dark" | "light"
 }
 
 export function BrandLogo({
@@ -15,10 +17,11 @@ export function BrandLogo({
   imageClassName,
   href = "/",
   priority = false,
+  tone = "dark",
 }: BrandLogoProps) {
   const logo = (
     <Image
-      src="/finscope-ai-logo-cropped.png"
+      src={tone === "light" ? "/finscope-ai-logo-light.png" : "/finscope-ai-logo-dark.png"}
       alt="FinScope AI"
       width={760}
       height={315}
