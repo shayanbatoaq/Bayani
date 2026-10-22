@@ -1,7 +1,7 @@
 # FinScope AI Supabase Setup
 
-Run `schema.sql` first, then `seed.sql`.
+The current app stores signed-in client data in `finscope_user_data`. Its production migrations are in `migrations/` and are already applied to the connected FinScope project. They enable owner-scoped Row Level Security and a revision-checked save function.
 
-The schema creates the requested profiles, companies, assessments, benchmark, trial balance, mapping, statement, KPI, score, intelligence rule, recommendation, AI commentary, report, expert lead, and pricing tables. Row-level security is enabled for all application tables, with owner policies for assessment data and admin policies for configuration tables.
+Configure the project URL and publishable key as described in `../docs/setup.md`. Do not use a service-role or secret key in the app.
 
-The `assessment-files` private storage bucket is created for uploaded source files and generated report artifacts.
+`schema.sql` and `seed.sql` are retained for the earlier assessment prototype; do not run them to set up the current product.

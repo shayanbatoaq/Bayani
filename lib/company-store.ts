@@ -9,6 +9,13 @@ import {
   type CompanyDraft,
 } from "./company"
 import { FinancialError, ownerDirectory } from "./financial-store"
+import {
+  deleteStoredData,
+  deleteStoredDataByPrefix,
+  listStoredData,
+  readStoredData,
+  saveStoredData,
+} from "./supabase/data-store"
 
 /**
  * Companies a profile may hold. The live product includes one company per subscription;
@@ -25,6 +32,11 @@ export function companyTestMode() {
 }
 
 export async function paidExtraCompanies(owner: string) {
+  const saved = await readStoredData<{ extraCompanies?: unknown }>(owner, "plan", "subscription")
+  if (saved !== undefined) {
+    const extra = Number(saved?.value.extraCompanies)
+    return Number.isInteger(extra) && extra > 0 ? Math.min(extra, 500) : 0
+  }
   try {
     const plan = JSON.parse(await readFile(path.join(/* turbopackIgnore: true */ ownerDirectory(owner), "plan.json"), "utf8")) as { extraCompanies?: unknown }
     const extra = Number(plan.extraCompanies)
@@ -46,6 +58,13 @@ function directory(owner: string) {
 }
 
 export async function listCompanies(owner: string): Promise<Company[]> {
+  const saved = await listStoredData<Company>(owner, "companies")
+  if (saved) {
+    return saved
+      .map(({ value }) => ({ ...value, ...companyExtrasSchema.parse(value) }) as Company)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  }
+
   let files: string[]
   try {
     files = await readdir(directory(owner))
@@ -69,6 +88,24 @@ export async function getCompany(owner: string, id: string) {
 }
 
 async function write(owner: string, company: Company) {
+  const stored = await readStoredData<Company>(owner, "companies", company.id)
+  if (stored !== undefined) {
+    const value = {
+      ...company,
+      revision: (stored?.revision ?? 0) + 1,
+      updatedAt: new Date().toISOString(),
+    }
+    const saved = await saveStoredData(
+      owner,
+      "companies",
+      company.id,
+      value,
+      stored?.revision ?? 0
+    )
+    if (!saved) throw new Error("Supabase company save did not complete.")
+    return { ...saved.value, revision: saved.revision, updatedAt: saved.updatedAt } as Company
+  }
+
   await mkdir(directory(owner), { recursive: true })
   const file = path.join(directory(owner), `${company.id}.json`)
   const temporary = `${file}-${randomUUID()}.tmp`
@@ -148,6 +185,16 @@ export async function updateCompanyExtras(
 export async function deleteCompany(owner: string, id: string) {
   const existing = await getCompany(owner, id)
   if (!existing) throw new FinancialError("Company not found.", 404)
+  const removed = await deleteStoredData(owner, "companies", id)
+  if (removed) {
+    await Promise.all([
+      deleteStoredDataByPrefix(owner, "financial-records", `${id}-`),
+      deleteStoredDataByPrefix(owner, "bank-sessions", `${id}-`),
+      deleteStoredData(owner, "company-logos", id),
+    ])
+    return existing
+  }
+
   await rm(path.join(directory(owner), `${id}.json`), { force: true })
   await removeLogoFiles(owner, id)
   let files: string[] = []
@@ -190,6 +237,19 @@ export async function saveCompanyLogo(owner: string, id: string, bytes: Buffer) 
       ? "jpeg"
       : null
   if (!type) throw new FinancialError("Upload the logo as a PNG or JPG image.", 415)
+  const stored = await readStoredData<{ type: string; base64: string }>(owner, "company-logos", id)
+  if (stored !== undefined) {
+    const saved = await saveStoredData(
+      owner,
+      "company-logos",
+      id,
+      { type, base64: bytes.toString("base64") },
+      stored?.revision ?? 0
+    )
+    if (!saved) throw new Error("Supabase logo save did not complete.")
+    return updateCompanyExtras(owner, id, { logo: { type, updatedAt: saved.updatedAt } })
+  }
+
   await mkdir(path.dirname(logoPath(owner, id, type)), { recursive: true })
   await removeLogoFiles(owner, id)
   await writeFile(logoPath(owner, id, type), bytes, { mode: 0o600 })
@@ -198,6 +258,11 @@ export async function saveCompanyLogo(owner: string, id: string, bytes: Buffer) 
 
 export async function readCompanyLogo(owner: string, company: Company) {
   if (!company.logo) return null
+  const stored = await readStoredData<{ type: string; base64: string }>(owner, "company-logos", company.id)
+  if (stored !== undefined) {
+    if (!stored) return null
+    return { type: stored.value.type as "png" | "jpeg", bytes: Buffer.from(stored.value.base64, "base64") }
+  }
   try {
     return { type: company.logo.type, bytes: await readFile(logoPath(owner, company.id, company.logo.type)) }
   } catch {
@@ -206,6 +271,8 @@ export async function readCompanyLogo(owner: string, company: Company) {
 }
 
 export async function deleteCompanyLogo(owner: string, id: string) {
+  const removed = await deleteStoredData(owner, "company-logos", id)
+  if (removed) return updateCompanyExtras(owner, id, { logo: null })
   await removeLogoFiles(owner, id)
   return updateCompanyExtras(owner, id, { logo: null })
 }

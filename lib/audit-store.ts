@@ -4,10 +4,14 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { AuditRequest, AuditRequestInput } from "./audit-request"
 import { ownerDirectory } from "./financial-store"
+import { listStoredData, saveStoredData } from "./supabase/data-store"
 
 const file = (owner: string) => path.join(/* turbopackIgnore: true */ ownerDirectory(owner), "audit-requests.json")
 
 export async function listAuditRequests(owner: string): Promise<AuditRequest[]> {
+  const saved = await listStoredData<AuditRequest>(owner, "audit-requests", 200)
+  if (saved) return saved.map(({ value }) => value)
+
   try {
     const list = JSON.parse(await readFile(file(owner), "utf8")) as AuditRequest[]
     return Array.isArray(list) ? list : []
@@ -18,6 +22,9 @@ export async function listAuditRequests(owner: string): Promise<AuditRequest[]> 
 
 export async function saveAuditRequest(owner: string, input: AuditRequestInput, companyName: string) {
   const request: AuditRequest = { ...input, years: [...input.years].sort((a, b) => a - b), id: randomUUID(), companyName, createdAt: new Date().toISOString(), status: "Received" }
+  const saved = await saveStoredData(owner, "audit-requests", request.id, request, 0)
+  if (saved) return request
+
   const list = [request, ...(await listAuditRequests(owner))].slice(0, 200)
   await mkdir(ownerDirectory(owner), { recursive: true, mode: 0o700 })
   const temporary = `${file(owner)}.${randomUUID()}.tmp`

@@ -10,11 +10,11 @@ Final Report selects saved client years and statement tabs. Excel exports retain
 
 ## Storage
 
-Records are stored outside public assets under `.data/financial-records`, ignored by Git. Set `FINSCOPE_DATA_DIR` to an absolute persistent storage directory when hosting on a persistent Node server. Do not use ephemeral serverless storage for real clients.
+Signed-in users' companies, financial records, bank reconciliations, audit requests, plans and logos are stored in the Supabase `finscope_user_data` table. Row Level Security restricts every row to its authenticated owner. Financial and company saves use database revisions to reject stale edits.
 
-When Supabase authentication is configured, every financial-data API request verifies the user with `auth.getUser()` and isolates files by a hash of the verified user ID. Without configured authentication, development uses a random HttpOnly, SameSite=Strict workspace cookie. This local workspace is tied to the browser's cookie and is not a cloud account. Production refuses unauthenticated storage unless `FINSCOPE_LOCAL_WORKSPACE=true` explicitly enables the local mode. No external database schema is modified by this feature.
+For local development without Supabase credentials, records continue to use an ignored `.data/financial-records` directory and a random HttpOnly, SameSite=Strict workspace cookie. That local workspace is browser-specific and is not a cloud account. Do not enable filesystem storage for real Vercel clients; serverless files are ephemeral.
 
-Back up the persistent directory. Cloud/database deployment is a separate configuration step; local files are not synchronized to Supabase automatically.
+See `setup.md` for Supabase and Vercel configuration. Local filesystem records are not automatically migrated to Supabase.
 
 ## AMA Contact
 
