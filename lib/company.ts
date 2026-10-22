@@ -95,6 +95,8 @@ export const companyExtrasSchema = z.object({
     .max(500)
     .default([]),
   vatOverrides: z.record(z.string().max(40), vatOverrideSchema).default({}),
+  /** VAT profile and period answers (validated in lib/vat-return.ts). */
+  vatAnswers: z.record(z.string(), z.unknown()).default({}),
   /** Corporate tax return answers by year (validated in lib/ct-return.ts). */
   ctAnswers: z.record(z.string().regex(/^\d{4}$/), z.record(z.string().max(60), z.union([z.string().max(300), z.number(), z.boolean()]))).default({}),
   documents: z
