@@ -47,6 +47,7 @@ export async function financialOwner() {
   }
   if (
     process.env.NODE_ENV === "production" &&
+    process.env.BAYANI_LOCAL_WORKSPACE !== "true" &&
     process.env.FINSCOPE_LOCAL_WORKSPACE !== "true"
   )
     throw new FinancialError(
@@ -54,10 +55,11 @@ export async function financialOwner() {
       503
     )
   const jar = await cookies()
-  const existing = jar.get("finscope-workspace")?.value
+  const existing =
+    jar.get("bayani-workspace")?.value ?? jar.get("finscope-workspace")?.value
   if (existing && /^[a-f0-9]{64}$/.test(existing)) return `local:${existing}`
   const token = randomBytes(32).toString("hex")
-  jar.set("finscope-workspace", token, {
+  jar.set("bayani-workspace", token, {
     httpOnly: true,
     sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
@@ -69,6 +71,7 @@ export async function financialOwner() {
 
 export function ownerDirectory(owner: string) {
   const root =
+    process.env.BAYANI_DATA_DIR ||
     process.env.FINSCOPE_DATA_DIR ||
     path.join(/* turbopackIgnore: true */ process.cwd(), ".data", "financial-records")
   // Runtime client data must never be bundled into a deployment.

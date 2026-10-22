@@ -12,7 +12,7 @@ Final Report selects saved client years and statement tabs. Excel exports retain
 
 Signed-in users' companies, financial records, bank reconciliations, audit requests, plans and logos are stored in the Supabase `finscope_user_data` table. Row Level Security restricts every row to its authenticated owner. Financial and company saves use database revisions to reject stale edits.
 
-For local development without Supabase credentials, records continue to use an ignored `.data/financial-records` directory and a random HttpOnly, SameSite=Strict workspace cookie. That local workspace is browser-specific and is not a cloud account. Do not enable filesystem storage for real Vercel clients; serverless files are ephemeral.
+For local development without Supabase credentials, records continue to use an ignored `.data/financial-records` directory and a random HttpOnly, SameSite=Strict workspace cookie. Set `BAYANI_DATA_DIR` for a persistent local Node server; the old `FINSCOPE_DATA_DIR` variable remains supported for existing setups. That local workspace is browser-specific and is not a cloud account. Do not enable filesystem storage for real Vercel clients; serverless files are ephemeral.
 
 See `setup.md` for Supabase and Vercel configuration. Local filesystem records are not automatically migrated to Supabase.
 

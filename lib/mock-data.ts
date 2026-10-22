@@ -348,7 +348,7 @@ export const cfoReportSections = [
   {
     title: "Executive Summary",
     bullets: [
-      "FinScope AI calculates a strong Business Health Score of 82 based on margin strength, liquidity, and cash conversion.",
+      "Bayani calculates a strong Business Health Score of 82 based on margin strength, liquidity, and cash conversion.",
       "The entity appears commercially healthy, with tax and audit readiness requiring targeted documentation review.",
       "All commentary is indicative, requires professional review, and is not professional advice.",
     ],

@@ -37,7 +37,7 @@ const copy = {
     title: "Login",
     submit: "Login",
     success: "Signed in. Redirecting to your dashboard.",
-    footer: "New to FinScope AI?",
+    footer: "New to Bayani?",
     footerHref: "/register",
     footerLink: "Create an account",
   },

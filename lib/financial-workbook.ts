@@ -13,7 +13,7 @@ export async function createFinancialWorkbook(
   selected: ReportSheet[]
 ) {
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = "FinScope AI"
+  workbook.creator = "Bayani"
   workbook.calcProperties.fullCalcOnLoad = true
   const currency = records[0].currency
   const format = '#,##0.00;(#,##0.00);"-"'
@@ -60,7 +60,7 @@ export async function createFinancialWorkbook(
     sheet.getCell(3, 2).alignment = { wrapText: true, vertical: "middle" }
     sheet.getRow(3).height = 34
     sheet.properties.defaultRowHeight = 18
-    sheet.headerFooter.oddFooter = "FinScope AI | &P of &N"
+    sheet.headerFooter.oddFooter = "Bayani | &P of &N"
   }
   for (const sheet of Object.values(sheets)) {
     sheet.getColumn(1).width = 3

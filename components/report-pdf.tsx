@@ -77,16 +77,16 @@ const styles = StyleSheet.create({
   },
 })
 
-export function FinScopeReportPdf() {
+export function BayaniReportPdf() {
   return (
     <Document
-      title="FinScope AI Executive Report"
-      author="FinScope AI"
+      title="Bayani Executive Report"
+      author="Bayani"
       subject="AI CFO, Audit, Tax and Business Intelligence Report"
     >
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.title}>FinScope AI Executive Report</Text>
+          <Text style={styles.title}>Bayani Executive Report</Text>
           <Text style={styles.subtitle}>
             Indicative financial intelligence generated from system-calculated outputs. Requires professional review. Not professional advice.
           </Text>

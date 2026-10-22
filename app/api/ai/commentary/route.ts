@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       ...(openRouterKey
         ? {
             "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-            "X-Title": "FinScope AI",
+            "X-Title": "Bayani",
           }
         : {}),
     },

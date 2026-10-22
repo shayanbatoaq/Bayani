@@ -40,7 +40,7 @@ export function FinancialReportPdf({
   return (
     <Document
       title={`${records[0].clientName} financial statements`}
-      author="FinScope AI"
+      author="Bayani"
     >
       {records.flatMap((record) =>
         sheets.map((sheet) => (
@@ -140,7 +140,7 @@ export function FinancialReportPdf({
               style={styles.footer}
               fixed
               render={({ pageNumber, totalPages }) =>
-                `FinScope AI · ${pageNumber} / ${totalPages}`
+                `Bayani · ${pageNumber} / ${totalPages}`
               }
             />
           </Page>
