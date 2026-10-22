@@ -78,6 +78,7 @@ export async function saveCompany(
       updatedAt: now,
       customHeads: [],
       vatOverrides: {},
+      ctAnswers: {},
       documents: input.documents ?? [],
     })
   }
@@ -101,7 +102,7 @@ export async function saveCompany(
 export async function updateCompanyExtras(
   owner: string,
   id: string,
-  patch: Partial<Pick<Company, "customHeads" | "vatOverrides">>
+  patch: Partial<Pick<Company, "customHeads" | "vatOverrides" | "ctAnswers">>
 ) {
   const existing = await getCompany(owner, id)
   if (!existing) throw new FinancialError("Company not found.", 404)

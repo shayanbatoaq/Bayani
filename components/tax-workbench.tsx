@@ -14,17 +14,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { formatLongDate, monthNames, quarterCycleLabel, type Company, type VatOverride } from "@/lib/company"
+import { formatLongDate, quarterCycleLabel, type Company, type VatOverride } from "@/lib/company"
 import type { FinancialRecord } from "@/lib/financial-statements"
-import {
-  CT_RATE,
-  CT_ZERO_BAND,
-  SBR_LAST_PERIOD_END,
-  SBR_REVENUE_LIMIT,
-  ctSchedule,
-  vatSchedule,
-  type VatRow,
-} from "@/lib/tax"
+import { vatSchedule, type VatRow } from "@/lib/tax"
 import { cn } from "@/lib/utils"
 
 const aed = (n: number) =>
@@ -32,7 +24,7 @@ const aed = (n: number) =>
 const short = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
 
-function useTaxData() {
+export function useTaxData() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [records, setRecords] = useState<FinancialRecord[]>([])
   const [companyId, setCompanyId] = useState("")
@@ -57,7 +49,7 @@ function useTaxData() {
   return { companies, setCompanies, company, companyId, setCompanyId, companyRecords, loading, error }
 }
 
-function CompanyPicker({ companies, companyId, onChange }: { companies: Company[]; companyId: string; onChange: (id: string) => void }) {
+export function CompanyPicker({ companies, companyId, onChange }: { companies: Company[]; companyId: string; onChange: (id: string) => void }) {
   if (companies.length < 2) return null
   return (
     <select aria-label="Company" className="h-10 rounded-md border bg-white px-3 text-sm" value={companyId} onChange={(e) => onChange(e.target.value)}>
@@ -70,7 +62,7 @@ function CompanyPicker({ companies, companyId, onChange }: { companies: Company[
   )
 }
 
-function NoData({ title, text, href, action }: { title: string; text: string; href: string; action: string }) {
+export function NoData({ title, text, href, action }: { title: string; text: string; href: string; action: string }) {
   return (
     <div className="space-y-3 rounded-xl border bg-white p-10 text-center">
       <h2 className="text-xl font-semibold">{title}</h2>
@@ -296,105 +288,7 @@ export function VatWorkbench() {
 
 /* ============================ Corporate tax ============================ */
 
-export function CorporateTaxWorkbench() {
-  const data = useTaxData()
-  const { company, companyRecords } = data
-  const rows = useMemo(() => (company ? ctSchedule(company, companyRecords) : []), [company, companyRecords])
-
-  if (data.loading) return <Loading />
-  if (!company) return <NoData title="No data" text="Add your company on the Dashboard first." href="/dashboard" action="Go to Dashboard" />
-  if (!company.ct.trn)
-    return <NoData title="No corporate tax data" text="This company has no corporate tax registration. Add the CT TRN and tax period on the Dashboard." href="/dashboard" action="Update company" />
-  if (!companyRecords.length)
-    return <NoData title="No corporate tax data" text="No trial balance has been saved yet. Save a year in Data Input." href="/data-input" action="Go to Data Input" />
-
-  const lines: { label: string; get: (r: (typeof rows)[number]) => string; strong?: boolean }[] = [
-    { label: "Revenue (for small business relief test)", get: (r) => aed(r.revenue) },
-    { label: "Accounting profit / (loss)", get: (r) => aed(r.accountingProfit) },
-    { label: "Add: 50% of entertainment expenses", get: (r) => aed(r.entertainmentAddBack) },
-    { label: "Taxable income / (loss)", get: (r) => aed(r.taxableIncome), strong: true },
-    { label: "Tax losses brought forward", get: (r) => aed(r.lossBroughtForward) },
-    { label: "Losses used (max 75% of taxable income)", get: (r) => (r.lossUsed ? `(${aed(r.lossUsed)})` : aed(0)) },
-    { label: "Taxable income after losses", get: (r) => aed(r.taxableAfterLosses), strong: true },
-    { label: `Corporate tax at ${CT_RATE * 100}% above AED ${CT_ZERO_BAND.toLocaleString("en-AE")}`, get: (r) => aed(r.ctStandard), strong: true },
-    { label: "Small business relief", get: (r) => (r.sbrEligible ? "Eligible (CT nil if elected)" : "Not eligible") },
-    { label: "If relief elected, corporate tax", get: (r) => (r.sbrEligible ? aed(0) : "—") },
-    { label: "Tax losses carried forward", get: (r) => aed(r.lossCarriedForward) },
-  ]
-  const inScope = rows.filter((r) => r.status === "In scope")
-  const outScope = rows.filter((r) => r.status !== "In scope")
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <dl className="flex flex-wrap gap-x-10 gap-y-3 text-sm">
-          <Fact label="Company" value={company.name} />
-          <Fact label="CT TRN" value={company.ct.trn} mono />
-          <Fact label="Tax period ends" value={monthNames[company.ct.yearEndMonth - 1]} />
-          {company.ct.firstPeriodStart && <Fact label="First tax period from" value={formatLongDate(company.ct.firstPeriodStart)} />}
-        </dl>
-        <CompanyPicker companies={data.companies} companyId={data.companyId} onChange={data.setCompanyId} />
-      </div>
-
-      {inScope.length > 0 ? (
-        <div className="overflow-x-auto rounded-lg border bg-white">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-4">Tax period</TableHead>
-                {inScope.map((r) => (
-                  <TableHead key={r.year} className="min-w-44 text-right">
-                    {short(r.periodStart)} –<br />
-                    {short(r.periodEnd)}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {lines.map((line) => (
-                <TableRow key={line.label} className={cn(line.strong && "bg-secondary/50 font-semibold")}>
-                  <TableCell className="pl-4">{line.label}</TableCell>
-                  {inScope.map((r) => (
-                    <TableCell key={r.year} className="text-right font-mono tabular-nums">
-                      {line.get(r)}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-              <TableRow>
-                <TableCell className="pl-4 font-medium">Return and payment due</TableCell>
-                {inScope.map((r) => (
-                  <TableCell key={r.year} className="text-right font-medium">
-                    {formatLongDate(r.dueDate)}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      ) : (
-        <NoData title="No tax periods in scope" text="None of the saved years fall within the corporate tax regime for this registration." href="/data-input" action="Go to Data Input" />
-      )}
-
-      {outScope.length > 0 && (
-        <ul className="space-y-1 text-sm text-muted-foreground">
-          {outScope.map((r) => (
-            <li key={r.year}>
-              {r.year}: {r.status === "Before CT regime" ? "not subject to corporate tax (period began before 1 June 2023)." : "before the first tax period on the registration."}
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="text-sm leading-6 text-muted-foreground">
-        Small business relief applies where revenue is AED {SBR_REVENUE_LIMIT.toLocaleString("en-AE")} or less, for tax
-        periods ending by {formatLongDate(SBR_LAST_PERIOD_END)}, and must be elected in the return. Adjustments other
-        than entertainment (for example related-party or exempt income) are not included.
-      </p>
-    </div>
-  )
-}
-
-function Loading() {
+export function Loading() {
   return (
     <p role="status" className="flex items-center gap-2 text-sm">
       <Loader2 className="size-4 animate-spin" /> Loading...

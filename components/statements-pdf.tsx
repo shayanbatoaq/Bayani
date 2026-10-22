@@ -1,21 +1,7 @@
-import path from "node:path"
-import { Document, Font, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+import "@/lib/pdf-fonts"
+import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
 import type { Style } from "@react-pdf/stylesheet"
 import { reportIndex, type EquityTable, type IndexKey, type ReportModel, type Row, type Schedule } from "@/lib/report-model"
-
-/* Caladea is metric-compatible with Cambria; Carlito with Calibri (page numbers). Both OFL, bundled in assets/fonts. */
-const fontDir = path.join(/* turbopackIgnore: true */ process.cwd(), "assets", "fonts")
-Font.register({
-  family: "Serif",
-  fonts: [
-    { src: path.join(fontDir, "Caladea-Regular.ttf") },
-    { src: path.join(fontDir, "Caladea-Bold.ttf"), fontWeight: "bold" },
-    { src: path.join(fontDir, "Caladea-Italic.ttf"), fontStyle: "italic" },
-    { src: path.join(fontDir, "Caladea-BoldItalic.ttf"), fontWeight: "bold", fontStyle: "italic" },
-  ],
-})
-Font.register({ family: "Sans", src: path.join(fontDir, "Carlito-Regular.ttf") })
-Font.registerHyphenationCallback((word) => [word])
 
 /** Page numbers captured while laying out, used to fill the index on a second pass. */
 export type PageMarks = Partial<Record<IndexKey | "end", number>>

@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { companyExtrasSchema } from "@/lib/company"
+import { ctAnswerStoreSchema } from "@/lib/ct-return"
 import { updateCompanyExtras } from "@/lib/company-store"
 import { financialErrorResponse, financialOwner } from "@/lib/financial-store"
 import { assertSameOrigin, readJson } from "@/lib/request-guard"
@@ -10,6 +11,7 @@ const bodySchema = z.object({
   id: z.string().uuid(),
   customHeads: companyExtrasSchema.shape.customHeads.optional(),
   vatOverrides: companyExtrasSchema.shape.vatOverrides.optional(),
+  ctAnswers: ctAnswerStoreSchema.optional(),
 })
 
 export async function POST(request: Request) {
