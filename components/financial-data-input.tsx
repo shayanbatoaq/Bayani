@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { AlertCircle, ArrowRight, Building2, CheckCircle2, Loader2, Save } from "lucide-react"
+import { AlertCircle, ArrowRight, Building2, CheckCircle2, CloudUpload, Loader2, RotateCcw } from "lucide-react"
 
 import { DataInputWorkbench } from "@/components/data-input-workbench"
 import { Button } from "@/components/ui/button"
@@ -93,19 +93,30 @@ export function FinancialDataInput() {
   const resolved = input ? statementsFor(input, prior) : null
   const statements = resolved?.statements ?? null
 
+  // Figures save themselves: shortly after each change, and straight away when leaving the page.
+  const canSave = Boolean(input) && rows.length > 0 && !openingPartial
+  const latest = useRef({ input, revision, signature, dirty, canSave })
   useEffect(() => {
-    if (!dirty) return
-    const handler = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ""
-    }
-    window.addEventListener("beforeunload", handler)
-    return () => window.removeEventListener("beforeunload", handler)
-  }, [dirty])
+    latest.current = { ...latest.current, input, signature, dirty, canSave, revision: Math.max(latest.current.revision, revision) }
+  }, [signature, dirty, canSave, revision]) // eslint-disable-line react-hooks/exhaustive-deps -- the signature changes whenever the input does
+  const inFlight = useRef<Promise<void> | null>(null)
 
-  function selectYear(next: number) {
+  useEffect(() => {
+    const flush = () => {
+      const { input: pending, revision: rev, dirty: unsaved, canSave: ok } = latest.current
+      if (!pending || !unsaved || !ok || inFlight.current) return
+      fetch("/api/financial-data", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...pending, revision: rev }) }).catch(() => {})
+    }
+    window.addEventListener("pagehide", flush)
+    return () => {
+      window.removeEventListener("pagehide", flush)
+      flush() // moving to another tab of the app
+    }
+  }, [])
+
+  async function selectYear(next: number) {
     if (!company) return
-    if (dirty && !window.confirm(`Discard unsaved changes to ${year}?`)) return
+    if (dirty && canSave) await save()
     const record = companyRecords.find((item) => item.year === next)
     const prior = companyRecords.find((item) => item.year === next - 1)
     const nextMode: EntryMode = record?.entryMode ?? (prior ? "movement" : "closing")
@@ -180,34 +191,53 @@ export function FinancialDataInput() {
     setOpeningSource("manual")
   }
 
-  async function save() {
-    if (!input) return
-    setSaving(true)
-    setError("")
-    setMessage("")
+  async function save(): Promise<void> {
+    if (inFlight.current) {
+      await inFlight.current
+      if (!latest.current.dirty) return
+    }
+    const { input: pending, revision: rev, signature: sent } = latest.current
+    if (!pending || !latest.current.canSave) return
+    const run = (async () => {
+      setSaving(true)
+      setError("")
+      try {
+        const response = await fetch("/api/financial-data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...pending, revision: rev }),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error)
+        latest.current.revision = data.record.revision
+        setRecords((current) => [...current.filter((r) => r.id !== data.record.id), data.record])
+        // Later movement years build on this one, so refresh them too.
+        fetch("/api/financial-data", { cache: "no-store" })
+          .then((r) => r.json())
+          .then((all) => all.records && setRecords(all.records))
+          .catch(() => {})
+        setRevision(data.record.revision)
+        setSavedSignature(sent)
+        setMessage(`Saved ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`)
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Unable to save.")
+      } finally {
+        setSaving(false)
+      }
+    })()
+    inFlight.current = run
     try {
-      const response = await fetch("/api/financial-data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...input, revision }),
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
-      setRecords((current) => [...current.filter((r) => r.id !== data.record.id), data.record])
-      // Later movement years build on this one, so refresh them too.
-      fetch("/api/financial-data", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((all) => all.records && setRecords(all.records))
-        .catch(() => {})
-      setRevision(data.record.revision)
-      setSavedSignature(signature)
-      setMessage(`${year} saved.`)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to save.")
+      await run
     } finally {
-      setSaving(false)
+      inFlight.current = null
     }
   }
+
+  useEffect(() => {
+    if (!dirty || !canSave) return
+    const timer = setTimeout(() => void save(), 1200)
+    return () => clearTimeout(timer)
+  }, [signature, dirty, canSave])
 
   if (loading)
     return (
@@ -244,9 +274,10 @@ export function FinancialDataInput() {
               id="company"
               className="h-10 rounded-md border bg-white px-3 text-sm"
               value={companyId}
-              onChange={(event) => {
-                if (dirty && !window.confirm("Discard unsaved changes?")) return
-                setCompanyId(event.target.value)
+              onChange={async (event) => {
+                const next = event.target.value
+                if (dirty && canSave) await save()
+                setCompanyId(next)
                 setYear(null)
                 setRows([])
               }}
@@ -320,6 +351,7 @@ export function FinancialDataInput() {
               vatRegistered: Boolean(company.vat.trn),
               learned: company.bankRules ?? [],
               onSaveRules: saveBankRules,
+              sessionKey: { companyId: company.id, year },
             }}
           />
 
@@ -403,10 +435,23 @@ export function FinancialDataInput() {
               )}
 
               <div className="sticky bottom-20 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur lg:bottom-4">
-                <Button onClick={save} disabled={saving || openingPartial || !dirty}>
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                  {saving ? "Saving..." : `Save ${year} data`}
-                </Button>
+                <span className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium", error ? "bg-[#fdecec] text-[#b42318]" : saving || dirty ? "bg-[var(--cobalt-wash)] text-[var(--cobalt)]" : "bg-[var(--lagoon-wash)] text-[#0d7d73]")}>
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : dirty ? <CloudUpload className="size-4" /> : <CheckCircle2 className="size-4" />}
+                  {saving
+                    ? "Saving…"
+                    : openingPartial
+                      ? "Complete the opening equity to save"
+                      : dirty
+                        ? "Saving shortly…"
+                        : revision
+                          ? `All changes saved${message ? ` · ${message.replace("Saved ", "")}` : ""}`
+                          : ""}
+                </span>
+                {error && (
+                  <Button size="sm" variant="outline" onClick={() => void save()}>
+                    <RotateCcw className="size-4" /> Try again
+                  </Button>
+                )}
                 {revision > 0 && !dirty && (
                   <Button asChild variant="outline">
                     <Link href={`/reports?year=${year}`}>
@@ -414,10 +459,6 @@ export function FinancialDataInput() {
                     </Link>
                   </Button>
                 )}
-                <span className="text-sm text-muted-foreground">
-                  {dirty ? "Unsaved changes" : revision ? "All changes saved" : ""}
-                </span>
-                {message && <span className="text-sm text-emerald-800">{message}</span>}
                 {error && <span role="alert" className="text-sm text-destructive">{error}</span>}
               </div>
             </>

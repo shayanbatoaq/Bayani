@@ -159,6 +159,13 @@ export async function deleteCompany(owner: string, id: string) {
       .filter((file) => file.startsWith(`${id}-`) && file.endsWith(".json"))
       .map((file) => rm(path.join(ownerDirectory(owner), file), { force: true }))
   )
+  // Bank statement lines kept for this company's years.
+  const statements = path.join(/* turbopackIgnore: true */ ownerDirectory(owner), "bank-statements")
+  let saved: string[] = []
+  try {
+    saved = await readdir(statements)
+  } catch {}
+  await Promise.all(saved.filter((file) => file.startsWith(`${id}-`)).map((file) => rm(path.join(statements, file), { force: true })))
   return existing
 }
 

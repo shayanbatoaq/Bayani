@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
-import { AlertTriangle, CheckCircle2, ChevronDown, FileText, KeyRound, Landmark, Loader2, Search, ShieldCheck, Trash2, UploadCloud, Wand2 } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { AlertTriangle, CheckCircle2, ChevronDown, CloudUpload, FileText, KeyRound, Landmark, Loader2, Search, ShieldCheck, Trash2, UploadCloud, Wand2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -18,6 +18,7 @@ import {
   type LearnedRule,
 } from "@/lib/bank-categories"
 import { StatementPasswordError, readStatementFile } from "@/lib/bank-reader"
+import type { BankSession } from "@/lib/bank-session"
 import type { BankAccount, ParsedStatement } from "@/lib/bank-statement"
 import { formatLongDate } from "@/lib/company"
 import { categoryOf, scheduleLines } from "@/lib/financial-statements"
@@ -26,7 +27,8 @@ import { cn } from "@/lib/utils"
 
 type Loaded = {
   id: string
-  file: File
+  /** Absent for statements restored from an earlier visit (only their lines are kept). */
+  file?: File
   name: string
   status: "reading" | "done" | "error" | "password"
   parsed?: ParsedStatement
@@ -84,7 +86,7 @@ export function BankStatementImport({
   learned,
   onSaveRules,
   onApply,
-  hasRows,
+  sessionKey,
   customHeads,
   onAddHead,
 }: {
@@ -94,8 +96,10 @@ export function BankStatementImport({
   vatRegistered: boolean
   learned: LearnedRule[]
   onSaveRules: (rules: LearnedRule[]) => Promise<void>
-  onApply: (rows: StatementRows, mode: "replace" | "append", summary: string) => Promise<void> | void
-  hasRows: boolean
+  /** Puts the statement balances into the trial balance (replacing earlier statement balances only). */
+  onApply: (rows: StatementRows, summary: string, close: boolean) => Promise<void> | void
+  /** Where the lines and choices are saved as the user works. */
+  sessionKey: { companyId: string; year: number }
   customHeads: CustomHead[]
   onAddHead: (head: CustomHead) => Promise<void>
 }) {
@@ -109,7 +113,9 @@ export function BankStatementImport({
   const [openingSource, setOpeningSource] = useState<(typeof OPENING_SOURCES)[number]["key"]>("retained")
   const [view, setView] = useState<string>("review")
   const [query, setQuery] = useState("")
-  const [importMode, setImportMode] = useState<"replace" | "append">("replace")
+  const [restoring, setRestoring] = useState(true)
+  const [appliedAt, setAppliedAt] = useState<string | null>(null)
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState("")
   const [shown, setShown] = useState(60)
@@ -127,9 +133,94 @@ export function BankStatementImport({
   }, [customHeads])
   const catOf = (key: string) => categoryByKey.get(key) ?? heads.find((h) => h.key === key)
 
+  /* ---- saved work: restored on arrival, saved as the user works ---- */
+  const sessionUrl = `/api/bank-statements?companyId=${sessionKey.companyId}&year=${sessionKey.year}`
+  useEffect(() => {
+    let cancelled = false
+    fetch(sessionUrl, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data: { session?: BankSession | null }) => {
+        if (cancelled || !data.session) return
+        const saved = data.session
+        setFiles(saved.files.map((f) => ({ id: f.id, name: f.name, status: "done" as const, parsed: { bank: f.bank, accounts: f.accounts, warnings: f.warnings } })))
+        setOverrides(saved.overrides)
+        setSessionRules(saved.sessionRules)
+        setRates({ ...DEFAULT_RATES, ...saved.rates })
+        setVatIncluded(saved.vatIncluded)
+        setOpeningSource(saved.openingSource)
+        setAppliedAt(saved.appliedAt)
+        setView(Object.keys(saved.overrides).length ? "all" : "review")
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setRestoring(false))
+    return () => {
+      cancelled = true
+    }
+  }, [sessionUrl])
+
+  const sessionBody = useMemo(() => {
+    if (restoring) return ""
+    const session: BankSession = {
+      files: files
+        .filter((f) => f.status === "done" && f.parsed && f.parsed.accounts.length)
+        .map((f) => ({ id: f.id, name: f.name, bank: f.parsed!.bank, warnings: f.parsed!.warnings.slice(0, 10), accounts: f.parsed!.accounts })),
+      overrides,
+      sessionRules,
+      rates,
+      vatIncluded,
+      openingSource,
+      appliedAt,
+    }
+    return JSON.stringify(session)
+  }, [restoring, files, overrides, sessionRules, rates, vatIncluded, openingSource, appliedAt])
+  const lastSaved = useRef("")
+  useEffect(() => {
+    if (!sessionBody || sessionBody === lastSaved.current) return
+    const timer = setTimeout(async () => {
+      setSaveState("saving")
+      try {
+        const response = await fetch(sessionUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: sessionBody })
+        if (!response.ok) throw new Error()
+        lastSaved.current = sessionBody
+        setSaveState("saved")
+      } catch {
+        setSaveState("error")
+      }
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [sessionBody, sessionUrl])
+  // Leaving the page with a change not yet saved: send it on the way out.
+  const pendingBody = useRef("")
+  useEffect(() => {
+    pendingBody.current = sessionBody
+  }, [sessionBody])
+  useEffect(() => {
+    const flush = () => {
+      const body = pendingBody.current
+      if (!body || body === lastSaved.current) return
+      fetch(sessionUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60000 }).catch(() => {})
+    }
+    window.addEventListener("pagehide", flush)
+    return () => {
+      window.removeEventListener("pagehide", flush)
+      flush()
+    }
+  }, [sessionUrl])
+
+  async function clearAll() {
+    if (!window.confirm("Remove all uploaded statements and the choices made for this year? Balances already in the trial balance stay.")) return
+    await fetch(sessionUrl, { method: "DELETE" }).catch(() => {})
+    lastSaved.current = ""
+    setFiles([])
+    setOverrides({})
+    setSessionRules({})
+    setAppliedAt(null)
+  }
+
   async function read(entry: Loaded) {
     setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "reading", error: undefined } : f)))
     try {
+      if (!entry.file) return
       const parsed = await readStatementFile(entry.file, entry.password)
       setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "done", parsed } : f)))
     } catch (cause) {
@@ -161,7 +252,8 @@ export function BankStatementImport({
   }
 
   function add(list: FileList | File[]) {
-    const entries = [...list].slice(0, 24).map((file) => ({
+    const known = new Set(files.map((f) => f.name))
+    const entries = [...list].filter((file) => !known.has(file.name)).slice(0, 24).map((file) => ({
       id: crypto.randomUUID(),
       file,
       name: file.name,
@@ -298,28 +390,54 @@ export function BankStatementImport({
     return rows
   }
 
+  async function saveRules() {
+    const rules = new Map(learned.map((r) => [r.pattern, r.category]))
+    for (const [pattern, category] of Object.entries(sessionRules)) rules.set(pattern, category)
+    for (const t of inPeriod) {
+      const chosen = overrides[t.id]
+      const pattern = patternOf(t.description)
+      if (chosen && pattern && chosen !== "review") rules.set(pattern, chosen)
+    }
+    const merged = [...rules.entries()].map(([pattern, category]) => ({ pattern, category })).slice(-3000)
+    if (merged.length !== learned.length || merged.some((r, i) => learned[i]?.pattern !== r.pattern || learned[i]?.category !== r.category)) await onSaveRules(merged)
+  }
+
+  const summaryText = (count: number) =>
+    `${inPeriod.length} bank lines from ${accounts.length} account${accounts.length === 1 ? "" : "s"} are in the trial balance as ${count} balances.${reviewCount ? ` ${reviewCount} lines still under review are held in "Suspense (bank lines under review)".` : ""}${outside ? ` ${outside} lines outside ${formatLongDate(period.start)} – ${formatLongDate(period.end)} were left out.` : ""}`
+
   async function apply() {
     setApplying(true)
     setError("")
     try {
-      const rules = new Map(learned.map((r) => [r.pattern, r.category]))
-      for (const [pattern, category] of Object.entries(sessionRules)) rules.set(pattern, category)
-      for (const t of inPeriod) {
-        const chosen = overrides[t.id]
-        const pattern = patternOf(t.description)
-        if (chosen && pattern && chosen !== "review") rules.set(pattern, chosen)
-      }
-      const merged = [...rules.entries()].map(([pattern, category]) => ({ pattern, category })).slice(-3000)
-      if (merged.length !== learned.length || merged.some((r, i) => learned[i]?.pattern !== r.pattern || learned[i]?.category !== r.category)) await onSaveRules(merged)
+      await saveRules()
       const rows = buildRows()
-      const summary = `${inPeriod.length} bank lines from ${accounts.length} account${accounts.length === 1 ? "" : "s"} added as ${rows.length} balances.${reviewCount ? ` ${reviewCount} lines still under review are held in "Suspense (bank lines under review)".` : ""}${outside ? ` ${outside} lines outside ${formatLongDate(period.start)} – ${formatLongDate(period.end)} were left out.` : ""}`
-      await onApply(rows, importMode, summary)
+      setAppliedAt(new Date().toISOString())
+      await onApply(rows, summaryText(rows.length), true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not add the figures.")
     } finally {
       setApplying(false)
     }
   }
+
+  // Once the statements are in the trial balance, later changes here update it straight away.
+  const builtSignature = restoring || !appliedAt || !inPeriod.length ? "" : JSON.stringify(buildRows())
+  const lastApplied = useRef("")
+  useEffect(() => {
+    if (!builtSignature) return
+    if (!lastApplied.current) {
+      lastApplied.current = builtSignature
+      return
+    }
+    if (builtSignature === lastApplied.current) return
+    const timer = setTimeout(() => {
+      lastApplied.current = builtSignature
+      const rows = JSON.parse(builtSignature) as StatementRows
+      void saveRules().catch(() => {})
+      void onApply(rows, summaryText(rows.length), false)
+    }, 900)
+    return () => clearTimeout(timer)
+  }, [builtSignature]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const visible = inPeriod
     .filter((t) => (view === "all" ? true : effective(t) === view))
@@ -330,11 +448,19 @@ export function BankStatementImport({
     <section aria-label="Upload bank statements" className="space-y-5">
       <div className="panel space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="font-display text-lg font-semibold">Bank statements</h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="flex flex-wrap items-center gap-2 font-display text-lg font-semibold">
+              Bank statements
+              {saveState !== "idle" && (
+                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium", saveState === "error" ? "bg-[#fdecec] text-[#b42318]" : saveState === "saving" ? "bg-[var(--cobalt-wash)] text-[var(--cobalt)]" : "bg-[var(--lagoon-wash)] text-[#0d7d73]")}>
+                  {saveState === "saving" ? <Loader2 className="size-3 animate-spin" /> : saveState === "error" ? <AlertTriangle className="size-3" /> : <CloudUpload className="size-3" />}
+                  {saveState === "saving" ? "Saving" : saveState === "error" ? "Not saved, will retry on next change" : "Saved"}
+                </span>
+              )}
+            </h3>
             <p className="text-sm text-muted-foreground">
               Upload every statement for {formatLongDate(period.start)} – {formatLongDate(period.end)}: all months and all accounts. PDF from online banking, Excel or CSV. Files
-              are read on this device and are not uploaded.
+              are read on this device; the lines and your choices are saved with the company as you work.
             </p>
           </div>
         </div>
@@ -569,24 +695,20 @@ export function BankStatementImport({
                   Bank statements show cash only. After adding, enter what customers owed you and what you owed suppliers at year end, stock, and the value of equipment, so the
                   statements are complete.
                 </p>
-                {hasRows && (
-                  <fieldset className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-                    <legend className="mb-2 font-medium">This year already has balances</legend>
-                    <label className="flex items-center gap-2">
-                      <input type="radio" name="statement-mode" checked={importMode === "replace"} onChange={() => setImportMode("replace")} className="accent-[var(--cobalt)]" />
-                      Replace them
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input type="radio" name="statement-mode" checked={importMode === "append"} onChange={() => setImportMode("append")} className="accent-[var(--cobalt)]" />
-                      Add to them
-                    </label>
-                  </fieldset>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  Statement balances replace only earlier statement balances in the trial balance; balances you entered yourself stay.
+                  {appliedAt ? " These lines are already in the trial balance: every change you make here updates it and is saved automatically." : ""}
+                </p>
                 {error && <p className="note note-alert text-sm">{error}</p>}
                 <Button onClick={apply} disabled={applying || !ready || inPeriod.length === 0}>
                   {applying ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                  Add {inPeriod.length} lines to {new Date(period.end).getUTCFullYear()}
+                  {appliedAt ? `Update the ${new Date(period.end).getUTCFullYear()} trial balance now` : `Add ${inPeriod.length} lines to the ${new Date(period.end).getUTCFullYear()} trial balance`}
                 </Button>
+                {files.length > 0 && (
+                  <Button variant="ghost" onClick={() => void clearAll()}>
+                    <Trash2 className="size-4" /> Remove all statements
+                  </Button>
+                )}
               </div>
             </>
           )}

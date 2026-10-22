@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   ArrowDownToLine,
@@ -136,11 +136,29 @@ export function DataInputWorkbench({
     vatRegistered: boolean
     learned: LearnedRule[]
     onSaveRules: (rules: LearnedRule[]) => Promise<void>
+    sessionKey: { companyId: string; year: number }
   }
 }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const amountInput = useRef<HTMLInputElement>(null)
-  const [mode, setMode] = useState<"upload" | "manual" | "statement" | null>(null)
+  // A year built from bank statements reopens on the statements, with the sorting where it was left.
+  const [mode, setMode] = useState<"upload" | "manual" | "statement" | null>(statement && rows.some((row) => row.id.startsWith("bank-")) ? "statement" : null)
+  // Statements sorted earlier but not yet added: reopen them too.
+  const sessionCompany = statement?.sessionKey.companyId
+  const sessionYear = statement?.sessionKey.year
+  useEffect(() => {
+    if (!sessionCompany || !sessionYear) return
+    let cancelled = false
+    fetch(`/api/bank-statements?companyId=${sessionCompany}&year=${sessionYear}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data.session?.files?.length) setMode((current) => current ?? "statement")
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [sessionCompany, sessionYear])
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState("")
@@ -439,25 +457,29 @@ export function DataInputWorkbench({
           vatRegistered={statement.vatRegistered}
           learned={statement.learned}
           onSaveRules={statement.onSaveRules}
-          hasRows={rows.length > 0}
+          sessionKey={statement.sessionKey}
           customHeads={customHeads}
           onAddHead={onAddCustomHead}
-          onApply={async (entries: StatementRows, how, summary) => {
+          onApply={async (entries: StatementRows, summary, close) => {
             // Heads the standard list does not have are added as the company's own heads.
             for (const entry of entries) {
               const known = ledgerHeads.some((h) => h.name.toLowerCase() === entry.ledgerName.toLowerCase()) || customHeads.some((h) => h.name.toLowerCase() === entry.ledgerName.toLowerCase())
               if (!known) await onAddCustomHead({ name: entry.ledgerName, scheduleKey: entry.scheduleKey })
             }
-            const imported = entries.map((entry) => ({
+            const imported = entries.map((entry, i) => ({
               ...createLedgerRow({ ledgerName: entry.ledgerName, amount: entry.amount }),
+              // Marked so a later update replaces statement balances and leaves typed-in balances alone.
+              id: `bank-${i + 1}-${crypto.randomUUID().slice(0, 8)}`,
               // VAT Control is reported by its sign (owed to or by the FTA); every other head keeps its category.
               scheduleKey: entry.ledgerName === "VAT Control" ? resolveSchedule(entry.ledgerName, entry.amount, customHeads) || entry.scheduleKey : entry.scheduleKey,
             }))
-            onRowsChange(how === "append" ? [...rows, ...imported] : imported)
+            onRowsChange([...rows.filter((row) => !row.id.startsWith("bank-")), ...imported])
             setNotice(summary)
             setError("")
-            setPage(1)
-            setMode(null)
+            if (close) {
+              setPage(1)
+              setMode(null)
+            }
           }}
         />
       )}
