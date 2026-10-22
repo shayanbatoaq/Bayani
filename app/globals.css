@@ -172,6 +172,21 @@ h1, h2, h3, .font-display {
 .insight-info { border-left-color: var(--cobalt); color: #8fa8ff; }
 .insight-good { border-left-color: var(--lagoon); color: #5fe0d3; }
 
+/* Same callout for light panels */
+.note {
+  display: flex;
+  gap: 0.65rem;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  color: var(--ink);
+  border-left: 3px solid var(--cobalt);
+  background: var(--cobalt-wash);
+}
+.note-alert { border-left-color: #e5484d; background: #fdecec; color: #7a1c14; }
+.note-warning { border-left-color: var(--saffron); background: var(--saffron-wash); color: #5c3b00; }
+.note-info { border-left-color: var(--cobalt); background: var(--cobalt-wash); color: #1d2f6b; }
+.note-good { border-left-color: var(--lagoon); background: var(--lagoon-wash); color: #0b4d47; }
+
 /* ---------- segmented track (tabs) ---------- */
 
 .track {
@@ -309,8 +324,9 @@ h1, h2, h3, .font-display {
   align-items: center;
   gap: 3px;
   border-radius: 14px;
-  padding: 0.45rem 0.25rem;
-  font-size: 0.68rem;
+  min-width: 0;
+  padding: 0.45rem 0.1rem;
+  font-size: 0.62rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.6);
 }

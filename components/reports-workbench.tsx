@@ -194,7 +194,7 @@ export function ReportsWorkbench() {
         </p>
       )}
 
-      {model && !modelLoading && <ReportView key={modelKey} model={model} />}
+      {model && !modelLoading && <ReportView key={modelKey} model={model} records={records.filter((r) => r.clientId === companyId)} />}
     </div>
   )
 }

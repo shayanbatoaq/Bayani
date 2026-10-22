@@ -2,17 +2,19 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { FileText, Landmark, LayoutDashboard, LogOut, Receipt, Upload } from "lucide-react"
+import { ClipboardCheck, FileText, Gem, Landmark, LayoutDashboard, LogOut, Receipt, Upload } from "lucide-react"
 
 import { BrandLogo } from "@/components/brand-logo"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard },
   { href: "/data-input", label: "Data Input", short: "Data", icon: Upload },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/vat", label: "VAT", icon: Receipt },
   { href: "/corporate-tax", label: "Corporate Tax", short: "CT", icon: Landmark },
+  { href: "/audit", label: "Audit", icon: ClipboardCheck },
+  { href: "/valuation", label: "Valuation", short: "Value", icon: Gem },
 ]
 
 function useActive() {
