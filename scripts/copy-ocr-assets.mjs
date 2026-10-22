@@ -2,8 +2,9 @@
 // so scanned documents are read locally, without fetching anything from a CDN.
 import { cp, mkdir, readdir, stat } from "node:fs/promises"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 
-const root = path.dirname(path.dirname(new URL(import.meta.url).pathname))
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const out = path.join(root, "public", "ocr")
 const mod = (...p) => path.join(root, "node_modules", ...p)
 

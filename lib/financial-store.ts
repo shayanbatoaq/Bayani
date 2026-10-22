@@ -19,6 +19,12 @@ import {
 } from "./financial-statements"
 import { financialInputSchema } from "./financial-validation"
 import { resolveRecords } from "./movement"
+import {
+  listStoredData,
+  readStoredData,
+  saveStoredData,
+  SupabaseDataError,
+} from "./supabase/data-store"
 
 export class FinancialError extends Error {
   constructor(
@@ -75,6 +81,17 @@ export function ownerDirectory(owner: string) {
 export async function listFinancialRecords(
   owner: string
 ): Promise<FinancialRecord[]> {
+  const saved = await listStoredData<FinancialRecord>(owner, "financial-records")
+  if (saved) {
+    const records = saved.map(({ value, revision, updatedAt }) => {
+      const validated = financialInputSchema.parse(value)
+      return { ...value, ...validated, revision, updatedAt } as FinancialRecord
+    })
+    return resolveRecords(records).sort(
+      (a, b) => b.year - a.year || a.clientName.localeCompare(b.clientName)
+    )
+  }
+
   const directory = ownerDirectory(owner)
   let files: string[]
   try {
@@ -104,9 +121,36 @@ export async function saveFinancialRecord(
   input: FinancialInput,
   expectedRevision: number
 ) {
+  const id = `${input.clientId}-${input.year}`
+  const stored = await readStoredData<FinancialRecord>(owner, "financial-records", id)
+  if (stored !== undefined) {
+    if ((stored?.revision ?? 0) !== expectedRevision)
+      throw new FinancialError(
+        "This client year has a newer saved version. Reopen it before saving your changes.",
+        409
+      )
+    const record: FinancialRecord = {
+      ...input,
+      id,
+      revision: expectedRevision + 1,
+      updatedAt: new Date().toISOString(),
+      statements: calculateFinancials(input),
+    }
+    try {
+      await saveStoredData(owner, "financial-records", id, record, expectedRevision)
+    } catch (error) {
+      if (error instanceof SupabaseDataError && error.code === "40001")
+        throw new FinancialError(
+          "This client year has a newer saved version. Reopen it before saving your changes.",
+          409
+        )
+      throw error
+    }
+    return (await listFinancialRecords(owner)).find((item) => item.id === id) ?? record
+  }
+
   const directory = ownerDirectory(owner)
   await mkdir(directory, { recursive: true })
-  const id = `${input.clientId}-${input.year}`
   const filename = path.join(directory, `${id}.json`)
   const lockPath = path.join(directory, `${id}.lock`)
   let lock
@@ -158,6 +202,11 @@ export async function saveFinancialRecord(
 export function financialErrorResponse(error: unknown) {
   if (error instanceof FinancialError)
     return Response.json({ error: error.message }, { status: error.status })
+  if (error instanceof SupabaseDataError)
+    return Response.json(
+      { error: error.message },
+      { status: error.code === "401" ? 401 : 500 }
+    )
   console.error("Financial data operation failed", error)
   return Response.json(
     { error: "Financial data could not be read or saved. Please try again." },

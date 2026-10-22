@@ -2,14 +2,18 @@
 
 ## Sign-in (Supabase)
 
-Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Without them the app runs in demo mode: every sign-in option opens the workspace and data is stored against a browser cookie.
+Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (the legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` is still accepted). Without them the app runs in demo mode: every sign-in option opens a browser-cookie workspace. In production, set `FINSCOPE_REQUIRE_LOGIN=true` so client data is never written to ephemeral Vercel storage.
 
 Sign-in is passwordless:
 
 - **Email**: Supabase email link (magic link). Name and country are stored in the user's metadata at sign-up.
 - **Google, Facebook, Apple**: enable each provider in Supabase → Authentication → Providers, with the client ID and secret from Google Cloud, Meta for Developers and Apple Developer.
 
-In Supabase → Authentication → URL Configuration, add `https://<your-domain>/auth/callback` (and `http://localhost:3000/auth/callback` for local work) to the redirect URLs. Both OAuth and email links return through `/auth/callback`, which sets the session cookie and sends the user to `/profile`.
+In Supabase → Authentication → URL Configuration, set the Site URL to the production domain and add `https://<your-domain>/auth/callback` plus `http://localhost:3000/auth/callback` to the redirect URLs. Both OAuth and email links return through `/auth/callback`, which sets the session cookie and sends the user to `/profile`.
+
+The database schema is in `supabase/migrations/`. The production project uses the same owner-scoped migration. A signed-in account is required for persistent cloud storage; RLS prevents one account from reading another account's records.
+
+Add the two public Supabase settings to the Vercel project's Production, Preview and Development environments, then redeploy. They use the project's URL and publishable key; do not put a service-role or secret key in any `NEXT_PUBLIC_` variable.
 
 Social sign-up does not collect a country, so users can add it on the Profile page.
 
@@ -28,4 +32,4 @@ One company per subscription in the live product; each further company is a paid
 
 ## Storage
 
-Companies are saved beside the financial records under `.data/financial-records/<owner>/companies/`. See `financial-data.md` for storage and persistence requirements.
+Companies are saved in Supabase for signed-in users and in the local ignored `.data` directory during offline development. See `financial-data.md` for details.
