@@ -101,7 +101,7 @@ export function FinancialDataInput() {
   const canSave = Boolean(input) && rows.length > 0 && !openingPartial
   const latest = useRef({ input, revision, signature, dirty, canSave })
   useEffect(() => {
-    latest.current = { ...latest.current, input, signature, dirty, canSave, revision: Math.max(latest.current.revision, revision) }
+    latest.current = { ...latest.current, input, signature, dirty, canSave, revision }
   }, [signature, dirty, canSave, revision]) // eslint-disable-line react-hooks/exhaustive-deps -- the signature changes whenever the input does
   const inFlight = useRef<Promise<void> | null>(null)
 

@@ -11,7 +11,7 @@ export const registerSchema = authSchema.extend({
 })
 
 export const forgotPasswordSchema = z.object({
-  email: z.email("Enter the email linked to your FinScope account."),
+  email: z.email("Enter the email linked to your Bayani account."),
 })
 
 export const profileSchema = z.object({

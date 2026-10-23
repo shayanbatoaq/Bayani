@@ -31,7 +31,7 @@ export default function Home() {
             Accounts and UAE tax, prepared from your own figures.
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-8 text-white/70">
-            FinScope reads your company documents and trial balance, then builds the statements, the corporate tax return and a running view of your VAT — with every figure explained.
+            Bayani reads your company documents and trial balance, then builds the statements, the corporate tax return and a running view of your VAT — with every figure explained.
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
             <QuickLogin className="h-12 px-6 text-base" label="Open your workspace" />

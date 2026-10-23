@@ -21,12 +21,12 @@ export function BrandLogo({
 }: BrandLogoProps) {
   const logo = (
     <Image
-      src={tone === "light" ? "/finscope-ai-logo-light.png" : "/finscope-ai-logo-dark.png"}
-      alt="FinScope AI"
+      src="/bayani-logo.png"
+      alt="Bayani"
       width={760}
       height={315}
       priority={priority}
-      className={cn("h-12 w-auto object-contain", imageClassName)}
+      className={cn("h-12 w-auto object-contain", tone === "light" && "brightness-0 invert", imageClassName)}
     />
   )
 

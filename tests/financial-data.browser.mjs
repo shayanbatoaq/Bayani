@@ -4,12 +4,12 @@ import { mkdir } from "node:fs/promises"
 import ExcelJS from "exceljs"
 
 const require = createRequire(
-  process.env.FINSCOPE_TEST_DEPS
-    ? `${process.env.FINSCOPE_TEST_DEPS}/package.json`
+  process.env.BAYANI_TEST_DEPS || process.env.FINSCOPE_TEST_DEPS
+    ? `${process.env.BAYANI_TEST_DEPS || process.env.FINSCOPE_TEST_DEPS}/package.json`
     : import.meta.url
 )
 const { chromium } = require("playwright")
-const base = process.env.FINSCOPE_TEST_URL || "http://127.0.0.1:3000"
+const base = process.env.BAYANI_TEST_URL || process.env.FINSCOPE_TEST_URL || "http://127.0.0.1:3000"
 const output = ".local/qa-financial"
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })

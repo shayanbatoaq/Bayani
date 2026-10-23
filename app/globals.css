@@ -4,7 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * FinScope design tokens.
+ * Bayani design tokens.
  * Ink: the navigation rail and insight surfaces. Paper: the working area.
  * Cobalt carries actions; lagoon marks insight and good news; saffron warns.
  */
@@ -76,9 +76,9 @@
   --color-cobalt: var(--cobalt);
   --color-lagoon: var(--lagoon);
   --color-saffron: var(--saffron);
-  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-sora), var(--font-plex), ui-sans-serif, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: Arial, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: Consolas, "Courier New", ui-monospace, monospace;
   --radius-xs: calc(var(--radius) * 0.5);
   --radius-sm: calc(var(--radius) * 0.75);
   --radius-md: calc(var(--radius) * 0.875);

@@ -79,7 +79,11 @@ export function BillsWorkbench() {
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
-      const attachment = await upload
+      // The figures are still read when the document cannot be kept (too large, for example).
+      const attachment = await upload.catch((cause) => {
+        setReadError(`The document was read but not attached: ${cause instanceof Error ? cause.message : "it could not be saved"}`)
+        return null
+      })
       setEditing({ bill: null, draft: { fields: data.fields, sources: data.sources, attachment, preview: URL.createObjectURL(file), ai: data.ai } })
     } catch (cause) {
       setReadError(cause instanceof Error ? cause.message : "The document could not be read.")

@@ -5,14 +5,14 @@ import { DOMParser, XMLSerializer } from "@xmldom/xmldom"
 import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate"
 
 const require = createRequire(
-  process.env.FINSCOPE_TEST_DEPS
-    ? `${process.env.FINSCOPE_TEST_DEPS}/package.json`
+  process.env.BAYANI_TEST_DEPS || process.env.FINSCOPE_TEST_DEPS
+    ? `${process.env.BAYANI_TEST_DEPS || process.env.FINSCOPE_TEST_DEPS}/package.json`
     : import.meta.url
 )
 const { chromium } = require("playwright")
 const { PDFDocument, StandardFonts } = require("pdf-lib")
-const base = process.env.FINSCOPE_TEST_URL || "http://127.0.0.1:3000"
-const output = process.env.FINSCOPE_TEST_OUTPUT || ".next/qa"
+const base = process.env.BAYANI_TEST_URL || process.env.FINSCOPE_TEST_URL || "http://127.0.0.1:3000"
+const output = process.env.BAYANI_TEST_OUTPUT || process.env.FINSCOPE_TEST_OUTPUT || ".next/qa"
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })

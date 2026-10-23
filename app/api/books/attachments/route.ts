@@ -5,7 +5,8 @@ import { assertSameOrigin } from "@/lib/request-guard"
 
 export const runtime = "nodejs"
 
-const LIMIT = 15 * 1024 * 1024
+// Hosted functions accept requests of about 4.5 MB; photos are reduced in the browser before upload.
+const LIMIT = 4 * 1024 * 1024
 const TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic"])
 
 async function target(companyId: string | null) {
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     const { owner, companyId } = await target(String(form.get("companyId") ?? ""))
     const file = form.get("file")
     if (!(file instanceof File)) throw new FinancialError("Choose a file.")
-    if (file.size > LIMIT) throw new FinancialError("Documents can be up to 15 MB.", 413)
+    if (file.size > LIMIT) throw new FinancialError("Documents can be up to 4 MB. Save a smaller PDF, or take a photo instead.", 413)
     if (!TYPES.has(file.type)) throw new FinancialError("Attach a PDF or a photo (PNG, JPG, WEBP).")
     const id = await saveAttachment(owner, companyId, Buffer.from(await file.arrayBuffer()), file.type)
     return Response.json({ attachment: { id, name: file.name.slice(0, 200), type: file.type, size: file.size } })
