@@ -7,10 +7,14 @@ import { Activity, ArrowDownRight, ArrowUpRight, Banknote, Gauge, Landmark, Pigg
 import { allMetrics, cagr, growth, healthScore, type YearMetrics } from "@/lib/analytics"
 import type { FinancialRecord } from "@/lib/financial-statements"
 import type { ReportModel } from "@/lib/report-model"
+import { brand, chartTooltipStyle } from "@/lib/brand"
 import { cn } from "@/lib/utils"
 
-const C = { ink: "#0d1b2e", cobalt: "#2f5bff", lagoon: "#12b5a6", saffron: "#e89a00", rose: "#e5484d", violet: "#7c5cff", slate: "#8a9bb0" }
-const MIX = [C.cobalt, C.lagoon, C.saffron, C.violet, C.rose, C.slate]
+const C = { primary: brand.evergreen, secondary: brand.mint, tertiary: brand.info, gold: brand.gold, good: brand.evergreen, warn: brand.warning, bad: brand.danger, neutral: brand.sage, ink: brand.textSecondary }
+/** Label colour for text set on a chart fill: dark on the light fills, white on the rest. */
+const onFill = (fill: string) => ([brand.mint, brand.sage, brand.gold] as string[]).includes(fill) ? brand.text : "#ffffff"
+
+const MIX = [C.primary, C.secondary, C.tertiary, C.gold, C.neutral, C.ink]
 
 const compact = (n: number) => {
   const a = Math.abs(n)
@@ -101,15 +105,15 @@ function Title({ icon: Icon, title, hint }: { icon: typeof Activity; title: stri
   )
 }
 
-function Delta({ now, before, invert = false, dark = false }: { now: number; before: number | undefined | null; invert?: boolean; dark?: boolean }) {
+function Delta({ now, before, invert = false }: { now: number; before: number | undefined | null; invert?: boolean }) {
   const g = growth(now, before)
-  if (g === null) return <span className={cn("text-[11px]", dark ? "text-white/50" : "text-muted-foreground")}>no prior year</span>
+  if (g === null) return <span className={cn("text-[11px]", "text-muted-foreground")}>no prior year</span>
   const good = invert ? g < 0 : g > 0
   return (
     <span
       className={cn(
         "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums",
-        good ? (dark ? "bg-[#12b5a6]/20 text-[#5fe0d4]" : "bg-[var(--lagoon-wash)] text-[#0d7d73]") : dark ? "bg-[#e5484d]/20 text-[#ff9a9d]" : "bg-[#fdecec] text-[#b42318]"
+        good ? "bg-[var(--evergreen-subtle)] text-[var(--evergreen)]" : "bg-[var(--danger-subtle)] text-[var(--danger-text)]"
       )}
     >
       {g >= 0 ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
@@ -121,15 +125,15 @@ function Delta({ now, before, invert = false, dark = false }: { now: number; bef
 function Ring({ score }: { score: number }) {
   const r = 46
   const length = 2 * Math.PI * r
-  const color = score >= 70 ? C.lagoon : score >= 45 ? C.saffron : C.rose
+  const color = score >= 70 ? C.good : score >= 45 ? C.warn : C.bad
   return (
     <svg viewBox="0 0 120 120" className="size-32 shrink-0" role="img" aria-label={`Health score ${score} out of 100`}>
-      <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="10" />
-      <circle cx="60" cy="60" r={r} fill="none" stroke={color} strokeWidth="10" strokeLinecap="round" strokeDasharray={`${(score / 100) * length} ${length}`} transform="rotate(-90 60 60)" />
-      <text x="60" y="58" textAnchor="middle" fill="#fff" fontSize="30" fontWeight="600" fontFamily="var(--font-sora), sans-serif">
+      <circle cx="60" cy="60" r={r} fill="none" stroke={brand.track} strokeWidth="8" />
+      <circle cx="60" cy="60" r={r} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(score / 100) * length} ${length}`} transform="rotate(-90 60 60)" />
+      <text x="60" y="58" textAnchor="middle" fill={brand.text} fontSize="30" fontWeight="600" letterSpacing="-0.02em" fontFamily="var(--font-sans)">
         {score}
       </text>
-      <text x="60" y="78" textAnchor="middle" fill="rgba(255,255,255,0.6)" fontSize="10">
+      <text x="60" y="78" textAnchor="middle" fill={brand.textTertiary} fontSize="10" fontFamily="var(--font-sans)">
         out of 100
       </text>
     </svg>
@@ -140,14 +144,14 @@ function Hero({ model, m, prior, health, series }: { model: ReportModel; m: Year
   const verdict = health.score >= 70 ? "In good shape" : health.score >= 45 ? "Steady, with areas to watch" : "Needs attention"
   const revenueCagr = cagr(series.map((x) => x.revenue))
   return (
-    <section className="insight-panel overflow-hidden p-5 text-white sm:p-7">
+    <section className="insight-panel overflow-hidden p-5 sm:p-6">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
         <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
           <Ring score={health.score} />
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-white/55">Business health · {m.year}</p>
+            <p className="text-[13px] font-medium text-subtle-foreground">Business health · {m.year}</p>
             <h2 className="mt-1 font-display text-2xl font-semibold">{verdict}</h2>
-            <p className="mt-1 max-w-sm text-sm text-white/70">
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
               {model.companyName} earned {model.currency} {compact(m.revenue)} in revenue and {m.netProfit >= 0 ? "kept" : "lost"} {model.currency} {compact(Math.abs(m.netProfit))}
               {prior ? `, against ${compact(prior.revenue)} and ${compact(prior.netProfit)} in ${prior.year}` : ""}.
               {revenueCagr !== null && series.length > 2 ? ` Revenue has compounded at ${pct(revenueCagr)} a year.` : ""}
@@ -156,12 +160,12 @@ function Hero({ model, m, prior, health, series }: { model: ReportModel; m: Year
         </div>
         <div className="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-4">
           {health.items.map((item) => (
-            <div key={item.label} className="rounded-2xl bg-white/[0.06] p-3 ring-1 ring-white/10">
-              <p className="text-xs text-white/60">{item.label}</p>
-              <div className="mt-2 h-1.5 rounded-full bg-white/10">
-                <div className="h-full rounded-full" style={{ width: `${item.score}%`, background: item.score >= 70 ? C.lagoon : item.score >= 45 ? C.saffron : C.rose }} />
+            <div key={item.label} className="rounded-lg border bg-[var(--surface-subtle)] p-3">
+              <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
+              <div className="mt-2 h-1 rounded-full bg-[var(--surface-hover)]">
+                <div className="h-full rounded-full" style={{ width: `${item.score}%`, background: item.score >= 70 ? C.good : item.score >= 45 ? C.warn : C.bad }} />
               </div>
-              <p className="mt-2 text-[11px] leading-snug text-white/70">{item.note}</p>
+              <p className="mt-2 text-xs leading-snug text-muted-foreground">{item.note}</p>
             </div>
           ))}
         </div>
@@ -172,24 +176,23 @@ function Hero({ model, m, prior, health, series }: { model: ReportModel; m: Year
 
 function Kpis({ m, prior, currency }: { m: YearMetrics; prior: YearMetrics | null; currency: string }) {
   const tiles = [
-    { label: "Revenue", value: m.revenue, before: prior?.revenue, icon: TrendingUp, tone: C.cobalt },
-    { label: "Gross profit", value: m.grossProfit, before: prior?.grossProfit, icon: Sparkles, tone: C.violet },
-    { label: "EBITDA", value: m.ebitda, before: prior?.ebitda, icon: Activity, tone: C.lagoon },
-    { label: "Net profit", value: m.netProfit, before: prior?.netProfit, icon: PiggyBank, tone: m.netProfit >= 0 ? C.lagoon : C.rose },
-    { label: "Cash", value: m.cash, before: prior?.cash, icon: Banknote, tone: C.saffron },
-    { label: "Equity", value: m.equity, before: prior?.equity, icon: Landmark, tone: C.ink },
+    { label: "Revenue", value: m.revenue, before: prior?.revenue, icon: TrendingUp },
+    { label: "Gross profit", value: m.grossProfit, before: prior?.grossProfit, icon: Sparkles },
+    { label: "EBITDA", value: m.ebitda, before: prior?.ebitda, icon: Activity },
+    { label: "Net profit", value: m.netProfit, before: prior?.netProfit, icon: PiggyBank },
+    { label: "Cash", value: m.cash, before: prior?.cash, icon: Banknote },
+    { label: "Equity", value: m.equity, before: prior?.equity, icon: Landmark },
   ]
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       {tiles.map((tile) => (
-        <div key={tile.label} className="panel relative overflow-hidden p-4">
-          <span className="absolute inset-x-0 top-0 h-1" style={{ background: tile.tone }} />
+        <div key={tile.label} className="panel p-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">{tile.label}</p>
-            <tile.icon className="size-4" style={{ color: tile.tone }} />
+            <p className="text-[13px] font-medium text-muted-foreground">{tile.label}</p>
+            <tile.icon className="size-4 text-subtle-foreground" />
           </div>
-          <p className="mt-2 font-display text-xl font-semibold tabular-nums">
-            <span className="mr-1 text-xs font-normal text-muted-foreground">{currency}</span>
+          <p className="mt-2 font-display text-xl font-semibold tracking-[-0.015em] tabular-nums">
+            <span className="mr-1 text-xs font-semibold tracking-normal text-subtle-foreground">{currency}</span>
             {compact(tile.value)}
           </p>
           <div className="mt-1.5">
@@ -201,7 +204,7 @@ function Kpis({ m, prior, currency }: { m: YearMetrics; prior: YearMetrics | nul
   )
 }
 
-const tooltipStyle = { borderRadius: 12, border: "1px solid #dfe5f0", boxShadow: "0 8px 24px rgba(13,27,46,0.08)", fontSize: 12 }
+const tooltipStyle = chartTooltipStyle
 
 function TrendChart({ series }: { series: YearMetrics[] }) {
   const { ref, width } = useWidth()
@@ -210,22 +213,22 @@ function TrendChart({ series }: { series: YearMetrics[] }) {
     <div ref={ref} className="h-72 w-full">
       {width > 0 && (
         <ComposedChart width={width} height={288} data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e3e8f2" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke={brand.hairline} vertical={false} />
           <XAxis dataKey="year" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
           <YAxis yAxisId="v" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={compact} width={48} />
           <YAxis yAxisId="p" orientation="right" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} width={40} />
           <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => (name === "Net margin" ? `${value}%` : Number(value).toLocaleString("en-US"))} />
-          <Bar yAxisId="v" dataKey="Revenue" fill={C.cobalt} radius={[6, 6, 0, 0]} maxBarSize={38} />
-          <Bar yAxisId="v" dataKey="Gross profit" fill={C.violet} radius={[6, 6, 0, 0]} maxBarSize={38} />
+          <Bar yAxisId="v" dataKey="Revenue" fill={C.primary} radius={[6, 6, 0, 0]} maxBarSize={38} />
+          <Bar yAxisId="v" dataKey="Gross profit" fill={C.secondary} radius={[6, 6, 0, 0]} maxBarSize={38} />
           <Bar yAxisId="v" dataKey="Net profit" radius={[6, 6, 0, 0]} maxBarSize={38}>
             {data.map((d) => (
-              <Cell key={d.year} fill={d["Net profit"] >= 0 ? C.lagoon : C.rose} />
+              <Cell key={d.year} fill={d["Net profit"] >= 0 ? C.tertiary : C.bad} />
             ))}
           </Bar>
-          <Line yAxisId="p" dataKey="Net margin" stroke={C.saffron} strokeWidth={3} dot={{ r: 4, fill: C.saffron }} type="monotone" />
+          <Line yAxisId="p" dataKey="Net margin" stroke={C.warn} strokeWidth={3} dot={{ r: 4, fill: C.warn }} type="monotone" />
         </ComposedChart>
       )}
-      <Legend items={[["Revenue", C.cobalt], ["Gross profit", C.violet], ["Net profit", C.lagoon], ["Net margin %", C.saffron]]} />
+      <Legend items={[["Revenue", C.primary], ["Gross profit", C.secondary], ["Net profit", C.tertiary], ["Net margin %", C.warn]]} />
     </div>
   )
 }
@@ -245,10 +248,10 @@ function Legend({ items }: { items: [string, string][] }) {
 
 function Margins({ m, prior }: { m: YearMetrics; prior: YearMetrics | null }) {
   const rows = [
-    { label: "Gross margin", now: m.ratios.grossMargin, before: prior?.ratios.grossMargin ?? null, color: C.violet },
-    { label: "EBITDA margin", now: m.ratios.ebitdaMargin, before: prior?.ratios.ebitdaMargin ?? null, color: C.lagoon },
-    { label: "Net margin", now: m.ratios.netMargin, before: prior?.ratios.netMargin ?? null, color: C.cobalt },
-    { label: "Payroll to revenue", now: m.ratios.payrollToRevenue, before: prior?.ratios.payrollToRevenue ?? null, color: C.saffron },
+    { label: "Gross margin", now: m.ratios.grossMargin, before: prior?.ratios.grossMargin ?? null, color: C.secondary },
+    { label: "EBITDA margin", now: m.ratios.ebitdaMargin, before: prior?.ratios.ebitdaMargin ?? null, color: C.tertiary },
+    { label: "Net margin", now: m.ratios.netMargin, before: prior?.ratios.netMargin ?? null, color: C.primary },
+    { label: "Payroll to revenue", now: m.ratios.payrollToRevenue, before: prior?.ratios.payrollToRevenue ?? null, color: C.warn },
   ]
   return (
     <div className="space-y-5">
@@ -262,7 +265,7 @@ function Margins({ m, prior }: { m: YearMetrics; prior: YearMetrics | null }) {
               <span className="font-display font-semibold tabular-nums">
                 {pct(row.now)}
                 {change !== null && (
-                  <span className={cn("ml-2 text-xs font-medium", (row.label === "Payroll to revenue" ? change <= 0 : change >= 0) ? "text-[#0d7d73]" : "text-[#b42318]")}>
+                  <span className={cn("ml-2 text-xs font-medium", (row.label === "Payroll to revenue" ? change <= 0 : change >= 0) ? "text-[var(--evergreen)]" : "text-[var(--danger)]")}>
                     {change >= 0 ? "+" : ""}
                     {change.toFixed(1)} pts
                   </span>
@@ -270,7 +273,7 @@ function Margins({ m, prior }: { m: YearMetrics; prior: YearMetrics | null }) {
               </span>
             </div>
             <div className="relative mt-2 h-3 overflow-hidden rounded-full bg-secondary">
-              <div className="h-full rounded-full transition-all" style={{ width: `${width}%`, background: `linear-gradient(90deg, ${row.color}aa, ${row.color})` }} />
+              <div className="h-full rounded-full transition-all" style={{ width: `${width}%`, background: row.color }} />
               {row.before !== null && <span className="absolute top-0 h-full w-0.5 bg-[var(--ink)]/60" style={{ left: `${Math.max(0, Math.min(100, row.before * 100))}%` }} title="Prior year" />}
             </div>
           </div>
@@ -325,10 +328,10 @@ function StackBar({ title, parts }: { title: string; parts: { label: string; val
         <span className="font-semibold">{title}</span>
         <span className="tabular-nums text-muted-foreground">{compact(total)}</span>
       </div>
-      <div className="flex h-9 overflow-hidden rounded-xl bg-secondary">
+      <div className="flex h-9 overflow-hidden rounded-lg bg-secondary">
         {total > 0 &&
           shown.map((p) => (
-            <div key={p.label} className="grid place-items-center text-[10px] font-semibold text-white" style={{ width: `${(p.value / total) * 100}%`, background: p.color }} title={`${p.label}: ${p.value.toLocaleString("en-US")}`}>
+            <div key={p.label} className="grid place-items-center text-[10px] font-semibold" style={{ width: `${(p.value / total) * 100}%`, background: p.color, color: onFill(p.color) }} title={`${p.label}: ${p.value.toLocaleString("en-US")}`}>
               {p.value / total > 0.12 ? `${((p.value / total) * 100).toFixed(0)}%` : ""}
             </div>
           ))}
@@ -346,19 +349,19 @@ function BalanceShape({ m }: { m: YearMetrics }) {
       <StackBar
         title="Assets"
         parts={[
-          { label: "Cash", value: m.cash, color: C.lagoon },
-          { label: "Receivables", value: m.receivables, color: C.cobalt },
-          { label: "Inventory", value: m.inventory, color: C.violet },
-          { label: "Other current", value: Math.max(0, m.otherCurrentAssets), color: C.saffron },
+          { label: "Cash", value: m.cash, color: C.tertiary },
+          { label: "Receivables", value: m.receivables, color: C.primary },
+          { label: "Inventory", value: m.inventory, color: C.secondary },
+          { label: "Other current", value: Math.max(0, m.otherCurrentAssets), color: C.warn },
           { label: "Non-current", value: m.nonCurrentAssets, color: C.ink },
         ]}
       />
       <StackBar
         title="Funded by"
         parts={[
-          { label: "Current liabilities", value: Math.max(0, m.currentLiabilities) + Math.max(0, -m.cash), color: C.rose },
-          { label: "Non-current liabilities", value: Math.max(0, m.nonCurrentLiabilities), color: C.saffron },
-          { label: "Equity", value: Math.max(0, m.equity), color: C.cobalt },
+          { label: "Current liabilities", value: Math.max(0, m.currentLiabilities) + Math.max(0, -m.cash), color: C.gold },
+          { label: "Non-current liabilities", value: Math.max(0, m.nonCurrentLiabilities), color: C.neutral },
+          { label: "Equity", value: Math.max(0, m.equity), color: C.primary },
         ]}
       />
       {m.cash < 0 && <p className="note note-warning text-sm">The bank balance is overdrawn by {compact(-m.cash)}; it is shown as a liability, not an asset.</p>}
@@ -381,7 +384,7 @@ function CashStory({ flow, closing }: { flow: { a: number; b: number; c: number 
         <div key={item.label}>
           <div className="flex justify-between text-sm">
             <span>{item.label}</span>
-            <span className={cn("font-semibold tabular-nums", item.value < 0 ? "text-[#b42318]" : "text-[#0d7d73]")}>{compact(item.value)}</span>
+            <span className={cn("font-semibold tabular-nums", item.value < 0 ? "text-[var(--danger)]" : "text-[var(--evergreen)]")}>{compact(item.value)}</span>
           </div>
           <div className="relative mt-1.5 h-3 rounded-full bg-secondary">
             <span className="absolute left-1/2 top-[-3px] h-[18px] w-px bg-border" />
@@ -390,19 +393,19 @@ function CashStory({ flow, closing }: { flow: { a: number; b: number; c: number 
               style={{
                 width: `${(Math.abs(item.value) / max) * 50}%`,
                 left: item.value >= 0 ? "50%" : `${50 - (Math.abs(item.value) / max) * 50}%`,
-                background: item.value >= 0 ? C.lagoon : C.rose,
+                background: item.value >= 0 ? C.good : C.bad,
               }}
             />
           </div>
         </div>
       ))}
-      <div className="flex items-center justify-between rounded-2xl bg-[var(--ink)] px-4 py-3 text-white">
+      <div className="flex items-center justify-between rounded-lg border bg-[var(--surface-subtle)] px-4 py-3">
         <div>
-          <p className="text-[11px] text-white/60">Net change in cash</p>
+          <p className="text-xs text-muted-foreground">Net change in cash</p>
           <p className="font-display font-semibold tabular-nums">{compact(net)}</p>
         </div>
         <div className="text-right">
-          <p className="text-[11px] text-white/60">Closing cash</p>
+          <p className="text-xs text-muted-foreground">Closing cash</p>
           <p className="font-display font-semibold tabular-nums">{compact(closing)}</p>
         </div>
       </div>
@@ -412,9 +415,9 @@ function CashStory({ flow, closing }: { flow: { a: number; b: number; c: number 
 
 type Status = "good" | "watch" | "risk" | "na"
 const STATUS: Record<Status, { label: string; className: string }> = {
-  good: { label: "Healthy", className: "bg-[var(--lagoon-wash)] text-[#0d7d73]" },
-  watch: { label: "Watch", className: "bg-[var(--saffron-wash)] text-[#9a6200]" },
-  risk: { label: "Risk", className: "bg-[#fdecec] text-[#b42318]" },
+  good: { label: "Healthy", className: "bg-[var(--lagoon-wash)] text-[var(--evergreen)]" },
+  watch: { label: "Watch", className: "bg-[var(--saffron-wash)] text-[var(--warning-text)]" },
+  risk: { label: "Risk", className: "bg-[var(--danger-subtle)] text-[var(--danger)]" },
   na: { label: "n/a", className: "bg-secondary text-muted-foreground" },
 }
 const band = (n: number | null, good: (x: number) => boolean, watch: (x: number) => boolean): Status => (n === null ? "na" : good(n) ? "good" : watch(n) ? "watch" : "risk")
@@ -441,7 +444,7 @@ function Ratios({ m, prior }: { m: YearMetrics; prior: YearMetrics | null }) {
       {list.map((item) => (
         <div key={item.label} className="rounded-2xl border bg-secondary/30 p-3" title={item.hint}>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{item.group}</p>
+            <p className="text-[11px] text-muted-foreground">{item.group}</p>
             <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", STATUS[item.status].className)}>{STATUS[item.status].label}</span>
           </div>
           <p className="mt-1 text-sm">{item.label}</p>

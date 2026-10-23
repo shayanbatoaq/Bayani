@@ -296,7 +296,7 @@ export function FinancialDataInput() {
           </div>
         ) : (
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Company</p>
+            <p className="text-xs font-medium text-muted-foreground">Company</p>
             <p className="mt-1 text-lg font-semibold">{company?.name}</p>
           </div>
         )}
@@ -319,7 +319,7 @@ export function FinancialDataInput() {
                 )}
               >
                 <span className="block text-lg font-semibold">{option}</span>
-                <span className={cn("mt-0.5 flex items-center gap-1 text-xs", year === option ? "text-white/80" : saved ? "text-emerald-700" : "text-muted-foreground")}>
+                <span className={cn("mt-0.5 flex items-center gap-1 text-xs", year === option ? "text-primary-foreground/80" : saved ? "text-emerald-700" : "text-muted-foreground")}>
                   {saved ? (
                     <>
                       <CheckCircle2 className="size-3.5" /> Saved
@@ -451,7 +451,7 @@ export function FinancialDataInput() {
               )}
 
               <div className="sticky bottom-20 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur lg:bottom-4">
-                <span className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium", error ? "bg-[#fdecec] text-[#b42318]" : saving || dirty ? "bg-[var(--cobalt-wash)] text-[var(--cobalt)]" : "bg-[var(--lagoon-wash)] text-[#0d7d73]")}>
+                <span className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium", error ? "bg-[var(--danger-subtle)] text-[var(--danger)]" : saving || dirty ? "bg-[var(--cobalt-wash)] text-[var(--cobalt)]" : "bg-[var(--lagoon-wash)] text-[var(--evergreen)]")}>
                   {saving ? <Loader2 className="size-4 animate-spin" /> : dirty ? <CloudUpload className="size-4" /> : <CheckCircle2 className="size-4" />}
                   {saving
                     ? "Saving…"
@@ -619,7 +619,7 @@ function ClosingBalances({
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[36rem] text-sm">
           <thead>
-            <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr className="border-b text-left text-xs text-muted-foreground">
               <th className="py-2">Head</th>
               <th className="py-2 text-right">From {year - 1} ({currency})</th>
               <th className="py-2 text-right">Movement ({currency})</th>

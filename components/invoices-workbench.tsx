@@ -229,7 +229,7 @@ function Tile({ label, value, tone, currency }: { label: string; value: number; 
   return (
     <div className="panel p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 font-display text-xl font-semibold tabular-nums", tone === "good" && "text-[#0b6b62]", tone === "alert" && "text-[#b42318]")}>{currency} {aed(value)}</p>
+      <p className={cn("mt-1 font-display text-xl font-semibold tabular-nums", tone === "good" && "text-[var(--evergreen)]", tone === "alert" && "text-[var(--danger)]")}>{currency} {aed(value)}</p>
     </div>
   )
 }
@@ -239,7 +239,7 @@ function InvoiceTable({ books, list, onOpen, base }: { books: Books; list: Invoi
     <>
       <table className="hidden w-full text-sm md:table">
         <thead>
-          <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
             <th className="px-4 py-2.5">Number</th>
             <th className="px-4 py-2.5">Date</th>
             <th className="px-4 py-2.5">Client</th>
@@ -579,7 +579,7 @@ export function InvoiceForm({
       <Field label="Notes on the invoice">
         <textarea className="min-h-16 w-full rounded-md border px-3 py-2 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
-      {error && <p className="text-sm text-[#b42318]">{error}</p>}
+      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       <div className="sticky bottom-0 -mx-5 flex justify-end gap-2 border-t bg-white px-5 py-3">
         <Button onClick={() => void save()} disabled={saving || addingClient}>
           {saving && <Loader2 className="size-4 animate-spin" />}
@@ -691,7 +691,7 @@ function InvoiceView({ company, books, change, invoice, onClose, onEdit }: { com
             <Button
               size="sm"
               variant="ghost"
-              className="text-[#b42318]"
+              className="text-[var(--danger)]"
               disabled={Boolean(busy)}
               onClick={() => {
                 if (window.confirm(`Delete invoice ${invoice.number}? Its sales, VAT and receivable are removed from your reports.`))
@@ -707,7 +707,7 @@ function InvoiceView({ company, books, change, invoice, onClose, onEdit }: { com
           {error && <p className="note note-alert text-sm">{error}</p>}
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="py-2">Item</th>
                 <th className="py-2 text-right">Qty</th>
                 <th className="py-2 text-right">Rate</th>
@@ -831,7 +831,7 @@ export function PaymentForm({
       <Field label="Note">
         <Input value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
-      {error && <p className="text-sm text-[#b42318]">{error}</p>}
+      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Back
@@ -874,7 +874,7 @@ function CreditNoteForm({ company, books, invoice, change, onCancel, onDone }: {
       <p className="text-right text-sm font-semibold">
         Credit {invoice.currency ?? company.baseCurrency ?? "AED"} {aed(total)}
       </p>
-      {error && <p className="text-sm text-[#b42318]">{error}</p>}
+      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onCancel}>
           Back
@@ -1065,7 +1065,7 @@ function InvoiceSettings({ company, books, change }: { company: Company; books: 
             </Field>
           </div>
         )}
-        {error && <p className="text-sm text-[#b42318]">{error}</p>}
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
         <div className="flex justify-end">
           <Button
             disabled={state === "saving"}

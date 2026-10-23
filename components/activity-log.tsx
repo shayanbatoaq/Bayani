@@ -126,7 +126,7 @@ export function ActivityLog() {
       ) : (
         days.map((group) => (
           <section key={group.day} className="space-y-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.day}</h2>
+            <h2 className="text-xs font-semibold text-muted-foreground">{group.day}</h2>
             <ul className="panel divide-y overflow-hidden">
               {group.entries.map((e) => {
                 const expanded = open.has(e.id)

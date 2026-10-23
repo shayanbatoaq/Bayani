@@ -13,16 +13,13 @@ type PageHeaderProps = {
 
 export function PageHeader({ eyebrow, title, description, action, className }: PageHeaderProps) {
   return (
-    <div className={cn("flex flex-col gap-4 pb-2 sm:flex-row sm:items-end sm:justify-between", className)}>
+    <div className={cn("flex flex-col gap-4 border-b pb-6 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="max-w-3xl">
         {eyebrow ? (
-          <p className="flex items-center gap-2 text-sm font-medium text-[var(--cobalt)]">
-            <span aria-hidden className="h-[3px] w-6 rounded-full bg-gradient-to-r from-[var(--cobalt)] to-[var(--lagoon)]" />
-            {eyebrow}
-          </p>
+          <p className="text-[13px] font-medium text-subtle-foreground">{eyebrow}</p>
         ) : null}
-        <h1 className="mt-2 font-display text-3xl font-semibold text-foreground sm:text-[2.4rem] sm:leading-tight">{title}</h1>
-        {description ? <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">{description}</p> : null}
+        <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-[1.75rem] sm:leading-9">{title}</h1>
+        {description ? <p className="mt-1.5 max-w-2xl text-sm leading-[22px] text-muted-foreground">{description}</p> : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>

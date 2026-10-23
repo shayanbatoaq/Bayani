@@ -4,47 +4,82 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Bayani design tokens.
- * Ink: the navigation rail and insight surfaces. Paper: the working area.
- * Cobalt carries actions; lagoon marks insight and good news; saffron warns.
+ * Bayani design tokens. Source of truth: the Bayani design system.
+ * Flat surfaces on canvas, 1px hairlines, one accent (evergreen). Mint is the logo's
+ * accent and appears sparingly. No gradients, glows, coloured shadows or patterns.
  */
 :root {
-  --ink: #0d1b2e;
-  --ink-2: #14273f;
-  --ink-3: #1d3352;
-  --cobalt: #2f5bff;
-  --cobalt-deep: #2347d6;
-  --lagoon: #12b5a6;
-  --saffron: #e89a00;
-  --lagoon-wash: #e5f7f5;
-  --saffron-wash: #fff3d9;
-  --cobalt-wash: #eaf0ff;
+  /* brand */
+  --evergreen: #0f5846;
+  --evergreen-hover: #0b4537;
+  --evergreen-subtle: #e9f6ef;
+  --mint: #6fdfb0;
+  --forest: #0c2a22;
 
-  --background: #f3f5f9;
-  --foreground: #16233a;
-  --card: #ffffff;
-  --card-foreground: #16233a;
-  --popover: #ffffff;
-  --popover-foreground: #16233a;
-  --primary: #2f5bff;
+  /* neutrals */
+  --canvas: #f8f9f4;
+  --surface: #ffffff;
+  --surface-subtle: #f2f4ef;
+  --surface-hover: #eceee8;
+  --hairline: #e3e7e0;
+  --hairline-strong: #d2d8cf;
+  --border-input: #7f9188;
+  --text: #111a16;
+  --text-secondary: #4f5d56;
+  --text-tertiary: #606d66;
+
+  /* status: each has a subtle ground and a text colour for that ground */
+  --warning: #b26a00;
+  --warning-subtle: #fdf4e3;
+  --warning-text: #7a4a00;
+  --danger: #c4321f;
+  --danger-subtle: #fcefec;
+  --danger-text: #8f2416;
+  --info: #2d5b8c;
+  --info-subtle: #edf2f8;
+  --info-text: #1f4166;
+
+  /* shadcn roles */
+  --background: var(--canvas);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary: var(--evergreen);
   --primary-foreground: #ffffff;
-  --secondary: #eef2f9;
-  --secondary-foreground: #1b2b45;
-  --muted: #e7ecf4;
-  --muted-foreground: #5b6a82;
-  --accent: #e5f7f5;
-  --accent-foreground: #0e4f49;
-  --destructive: #d92d20;
+  --secondary: var(--surface-subtle);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-subtle);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--evergreen-subtle);
+  --accent-foreground: var(--evergreen);
+  --destructive: var(--danger);
   --destructive-foreground: #ffffff;
-  --border: #dde4ef;
-  --input: #d6deeb;
-  --ring: #2f5bff;
-  --chart-1: #2f5bff;
-  --chart-2: #12b5a6;
-  --chart-3: #e89a00;
-  --chart-4: #6b7a93;
-  --chart-5: #8b5cf6;
-  --radius: 0.625rem;
+  --border: var(--hairline);
+  --input: var(--border-input);
+  --ring: var(--evergreen);
+  --chart-1: var(--evergreen);
+  --chart-2: var(--mint);
+  --chart-3: #9fb3a9;
+  --chart-4: #d9a441;
+  --chart-5: var(--info);
+  --radius: 0.5rem;
+
+  --shadow-xs: 0 1px 2px rgba(17, 26, 22, 0.05);
+  --shadow-overlay: 0 16px 40px -12px rgba(17, 26, 22, 0.18), 0 2px 6px rgba(17, 26, 22, 0.06);
+
+  /* Retired names, kept so existing markup follows the new palette. */
+  --ink: var(--evergreen);
+  --ink-2: var(--evergreen-hover);
+  --ink-3: var(--evergreen-hover);
+  --cobalt: var(--evergreen);
+  --cobalt-deep: var(--evergreen-hover);
+  --cobalt-wash: var(--evergreen-subtle);
+  --lagoon: var(--evergreen);
+  --lagoon-wash: var(--evergreen-subtle);
+  --saffron: var(--warning);
+  --saffron-wash: var(--warning-subtle);
 }
 
 @theme inline {
@@ -60,6 +95,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--text-tertiary);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
@@ -72,18 +108,77 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-evergreen: var(--evergreen);
+  --color-mint: var(--mint);
+  --color-forest: var(--forest);
+  --color-canvas: var(--canvas);
   --color-ink: var(--ink);
   --color-cobalt: var(--cobalt);
   --color-lagoon: var(--lagoon);
   --color-saffron: var(--saffron);
-  --font-sans: Arial, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+
+  /* Status shades used across the workbenches resolve to the brand's status colours. */
+  --color-emerald-50: var(--evergreen-subtle);
+  --color-emerald-100: #d6eee2;
+  --color-emerald-200: #bfe3d0;
+  --color-emerald-500: var(--evergreen);
+  --color-emerald-600: var(--evergreen);
+  --color-emerald-700: var(--evergreen);
+  --color-emerald-800: var(--evergreen-hover);
+  --color-emerald-900: #0a3a2e;
+  --color-amber-50: var(--warning-subtle);
+  --color-amber-100: #fae8c4;
+  --color-amber-200: #f1d49a;
+  --color-amber-300: #e6bd6c;
+  --color-amber-400: #d9a441;
+  --color-amber-500: var(--warning);
+  --color-amber-600: var(--warning);
+  --color-amber-700: var(--warning);
+  --color-amber-800: var(--warning-text);
+  --color-amber-900: #5e3900;
+  --color-amber-950: #452a00;
+  --color-red-50: var(--danger-subtle);
+  --color-red-100: #f9dcd7;
+  --color-red-200: #f3c6bf;
+  --color-red-500: var(--danger);
+  --color-red-600: var(--danger);
+  --color-red-700: var(--danger);
+  --color-red-800: var(--danger-text);
+  --color-red-900: var(--danger-text);
+  --color-rose-700: var(--danger);
+  --color-sky-50: var(--info-subtle);
+  --color-sky-100: #dde7f2;
+  --color-sky-200: #c9d8ea;
+  --color-sky-500: #4a77a8;
+  --color-sky-600: var(--info);
+  --color-sky-700: var(--info);
+  --color-sky-800: var(--info-text);
+  --color-sky-900: #1a3755;
+  --color-sky-950: #142a42;
+  --color-violet-50: var(--info-subtle);
+  --color-violet-800: var(--info-text);
+  --color-slate-50: var(--surface-subtle);
+  --color-slate-700: var(--text-secondary);
+
+  --font-sans: var(--font-manrope), var(--font-plex-arabic), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-sans);
-  --font-mono: Consolas, "Courier New", ui-monospace, monospace;
-  --radius-xs: calc(var(--radius) * 0.5);
-  --radius-sm: calc(var(--radius) * 0.75);
-  --radius-md: calc(var(--radius) * 0.875);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.6);
+  --font-arabic: var(--font-plex-arabic), var(--font-manrope), system-ui, sans-serif;
+  /* Figures use Manrope's tabular numerals rather than a monospace face. */
+  --font-mono: var(--font-sans);
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 1rem;
+  --radius-4xl: 9999px;
+  --shadow-xs: 0 1px 2px rgba(17, 26, 22, 0.05);
+  --shadow-sm: 0 1px 2px rgba(17, 26, 22, 0.05);
+  --shadow-md: var(--shadow-overlay);
+  --shadow-lg: var(--shadow-overlay);
+  --shadow-xl: var(--shadow-overlay);
+  --shadow-2xl: var(--shadow-overlay);
 }
 
 * {
@@ -92,159 +187,133 @@
 
 html {
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   min-height: 100vh;
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-feature-settings: "tnum" 0;
   background-color: var(--background);
-  /* A faint measurement grid, like graph paper, under the working area. */
-  background-image:
-    radial-gradient(60rem 30rem at 100% -10%, rgba(47, 91, 255, 0.09), transparent 70%),
-    radial-gradient(circle at 1px 1px, rgba(22, 35, 58, 0.07) 1px, transparent 0);
-  background-size: auto, 22px 22px;
-  background-attachment: fixed;
 }
 
 h1, h2, h3, .font-display {
   font-family: var(--font-display);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 .tabular-nums, td, .font-mono {
   font-variant-numeric: tabular-nums;
 }
 
+[lang="ar"], [dir="rtl"] {
+  font-family: var(--font-arabic);
+}
+
 ::selection {
-  background: rgba(47, 91, 255, 0.18);
+  background: var(--evergreen-subtle);
 }
 
 :focus-visible {
-  outline: 2px solid var(--cobalt);
+  outline: 2px solid var(--evergreen);
   outline-offset: 2px;
 }
 
 /* ---------- surfaces ---------- */
 
-.panel {
-  background: var(--card);
+.panel,
+.insight-panel {
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 18px;
-  box-shadow: 0 1px 0 rgba(13, 27, 46, 0.03), 0 12px 32px -18px rgba(29, 51, 82, 0.25);
+  border-radius: 12px;
 }
 
-/* The insight surface: ink with a quiet signal glow in one corner. */
-.insight-panel {
-  position: relative;
-  overflow: hidden;
-  color: #fff;
-  border-radius: 22px;
-  background:
-    radial-gradient(28rem 16rem at 100% 0%, rgba(18, 181, 166, 0.22), transparent 70%),
-    radial-gradient(30rem 18rem at 0% 100%, rgba(47, 91, 255, 0.28), transparent 70%),
-    linear-gradient(160deg, var(--ink-2), var(--ink));
-  box-shadow: 0 24px 48px -28px rgba(13, 27, 46, 0.7);
-}
-.insight-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: linear-gradient(180deg, black, transparent 80%);
-}
-.insight-panel > * {
-  position: relative;
-}
+/* A finding: icon, title and sentence on a hairline-separated row. */
 .insight {
   display: flex;
-  gap: 0.65rem;
-  border-radius: 12px;
-  padding: 0.7rem 0.85rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-left: 3px solid rgba(255, 255, 255, 0.25);
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
 }
-.insight-alert { border-left-color: #ff6b5e; color: #ff9b91; }
-.insight-warning { border-left-color: var(--saffron); color: #ffc65a; }
-.insight-info { border-left-color: var(--cobalt); color: #8fa8ff; }
-.insight-good { border-left-color: var(--lagoon); color: #5fe0d3; }
+.insight:first-child { border-top: 0; padding-top: 0; }
+.insight > svg { color: var(--text-tertiary); }
+.insight-alert > svg { color: var(--danger); }
+.insight-warning > svg { color: var(--warning); }
+.insight-info > svg { color: var(--info); }
+.insight-good > svg { color: var(--evergreen); }
 
-/* Same callout for light panels */
+/* Callout: tinted ground, hairline in the same hue, icon in the status colour. */
 .note {
   display: flex;
-  gap: 0.65rem;
-  border-radius: 12px;
-  padding: 0.7rem 0.85rem;
-  color: var(--ink);
-  border-left: 3px solid var(--cobalt);
-  background: var(--cobalt-wash);
+  gap: 0.75rem;
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  background: var(--surface);
 }
-.note-alert { border-left-color: #e5484d; background: #fdecec; color: #7a1c14; }
-.note-warning { border-left-color: var(--saffron); background: var(--saffron-wash); color: #5c3b00; }
-.note-info { border-left-color: var(--cobalt); background: var(--cobalt-wash); color: #1d2f6b; }
-.note-good { border-left-color: var(--lagoon); background: var(--lagoon-wash); color: #0b4d47; }
+.note-alert { border-color: rgba(196, 50, 31, 0.16); background: var(--danger-subtle); color: var(--danger-text); }
+.note-warning { border-color: rgba(178, 106, 0, 0.18); background: var(--warning-subtle); color: var(--warning-text); }
+.note-info { border-color: rgba(45, 91, 140, 0.14); background: var(--info-subtle); color: var(--info-text); }
+.note-good { border-color: rgba(15, 88, 70, 0.14); background: var(--evergreen-subtle); color: var(--text); }
+.note-good > svg { color: var(--evergreen); }
 
-/* ---------- segmented track (tabs) ---------- */
+/* ---------- segmented control ---------- */
 
 .track {
   display: inline-flex;
   max-width: 100%;
-  gap: 4px;
+  gap: 2px;
   overflow-x: auto;
-  padding: 4px;
-  border-radius: 14px;
-  background: #e6ebf4;
-  box-shadow: inset 0 1px 2px rgba(13, 27, 46, 0.08);
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
 }
 .track-item {
   flex-shrink: 0;
-  border-radius: 10px;
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--muted-foreground);
-  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.3125rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background-color 120ms ease, color 120ms ease;
 }
 .track-item:hover {
-  color: var(--foreground);
+  color: var(--text);
 }
 .track-item[aria-selected="true"],
 .track-item[aria-current="page"],
 .track-item[aria-current="step"],
 .track-item[aria-pressed="true"] {
-  color: #fff;
-  background: linear-gradient(180deg, var(--ink-3), var(--ink));
-  box-shadow: 0 6px 14px -8px rgba(13, 27, 46, 0.8), inset 0 -2px 0 var(--lagoon);
+  color: var(--text);
+  font-weight: 600;
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-xs);
 }
 
-/* ---------- selectable tiles ---------- */
+/* ---------- selectable options ---------- */
 
 .tile {
   position: relative;
   display: block;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid var(--border);
-  background: var(--card);
-  padding: 1rem 1.1rem;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  background: var(--surface);
+  padding: 1rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .tile:hover {
-  border-color: rgba(47, 91, 255, 0.45);
+  border-color: var(--hairline-strong);
 }
-.tile-active {
-  border-color: var(--cobalt);
-  box-shadow: 0 0 0 3px rgba(47, 91, 255, 0.14), 0 16px 28px -20px rgba(47, 91, 255, 0.7);
-}
-.tile-active::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--cobalt), var(--lagoon));
+.tile-active,
+.tile-active:hover {
+  border-color: var(--evergreen);
+  box-shadow: 0 0 0 1px var(--evergreen);
 }
 
 /* Large choice targets (upload / enter manually). */
@@ -253,67 +322,51 @@ h1, h2, h3, .font-display {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
   min-height: 13rem;
-  border-radius: 18px;
-  border: 1.5px dashed #c3cee2;
-  background: linear-gradient(180deg, #fff, #f7f9fd);
+  border-radius: 12px;
+  border: 1px dashed var(--hairline-strong);
+  background: var(--surface);
   padding: 2rem 1.5rem;
   text-align: center;
-  transition: border-color 160ms ease, background 160ms ease;
+  transition: border-color 120ms ease, background-color 120ms ease;
 }
 .choice:hover,
 .choice-over {
-  border-color: var(--cobalt);
-  background: linear-gradient(180deg, #fff, var(--cobalt-wash));
+  border-color: var(--evergreen);
+  background: var(--evergreen-subtle);
 }
 
-/* ---------- navigation signal ---------- */
+/* ---------- navigation ---------- */
 
 .nav-link {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  border-radius: 12px;
-  padding: 0.6rem 0.75rem;
-  font-size: 0.9rem;
+  gap: 0.625rem;
+  height: 2.125rem;
+  border-radius: 8px;
+  padding: 0 0.625rem;
+  font-size: 0.84375rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.66);
-  transition: color 160ms ease, background-color 160ms ease;
+  color: var(--text-secondary);
+  transition: color 120ms ease, background-color 120ms ease;
 }
 .nav-link:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 .nav-icon {
   display: grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.06);
-  transition: background 160ms ease, box-shadow 160ms ease;
+  color: var(--text-tertiary);
 }
 .nav-link[aria-current="page"] {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.07);
+  color: var(--evergreen);
+  font-weight: 600;
+  background: var(--evergreen-subtle);
 }
 .nav-link[aria-current="page"] .nav-icon {
-  background: linear-gradient(135deg, var(--cobalt), var(--lagoon));
-  box-shadow: 0 0 18px rgba(47, 91, 255, 0.55);
-}
-/* The signal trace: a lit bar on the rail edge next to the open section. */
-.nav-link[aria-current="page"]::before {
-  content: "";
-  position: absolute;
-  left: -0.75rem;
-  top: 18%;
-  bottom: 18%;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, var(--cobalt), var(--lagoon));
-  box-shadow: 0 0 12px var(--cobalt);
+  color: var(--evergreen);
 }
 
 /* Mobile dock */
@@ -323,34 +376,22 @@ h1, h2, h3, .font-display {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  border-radius: 14px;
+  border-radius: 8px;
   min-width: 0;
   padding: 0.45rem 0.1rem;
-  font-size: 0.62rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 .dock-link[aria-current="page"] {
-  color: #fff;
-  background: linear-gradient(160deg, rgba(47, 91, 255, 0.9), rgba(18, 181, 166, 0.85));
-  box-shadow: 0 8px 18px -8px rgba(47, 91, 255, 0.9);
+  color: var(--evergreen);
+  font-weight: 600;
+  background: var(--evergreen-subtle);
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
-  }
-}
-
-/* Landing: the route line draws once on load. */
-.trace {
-  stroke-dasharray: 100;
-  stroke-dashoffset: 100;
-  animation: trace 1.6s 0.2s cubic-bezier(0.6, 0, 0.2, 1) forwards;
-}
-@keyframes trace {
-  to {
-    stroke-dashoffset: 0;
   }
 }

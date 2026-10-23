@@ -319,9 +319,9 @@ function Insights({ analysis, yearLabel }: { analysis: NonNullable<ReturnType<ty
   const scaleMax = Math.max(500_000, (s12 ?? 0) * 1.15)
   const pos = (n: number) => `${Math.min(100, (n / scaleMax) * 100)}%`
   return (
-    <section className="insight-panel grid gap-6 p-5 sm:p-7 lg:grid-cols-[1.1fr_1fr]">
+    <section className="insight-panel grid gap-6 p-5 sm:p-6 lg:grid-cols-[1.1fr_1fr]">
       <div className="space-y-5">
-        <div className="flex items-center gap-2 text-sm text-[var(--lagoon)]">
+        <div className="flex items-center gap-2 text-[13px] font-medium text-subtle-foreground">
           <Lightbulb className="size-4" /> VAT insights · {yearLabel}
         </div>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -334,40 +334,40 @@ function Insights({ analysis, yearLabel }: { analysis: NonNullable<ReturnType<ty
             ] as [string, number][]
           ).map(([label, value]) => (
             <div key={label}>
-              <dt className="text-xs text-white/60">{label}</dt>
-              <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-white">{whole(value)}</dd>
+              <dt className="text-xs text-muted-foreground">{label}</dt>
+              <dd className="mt-1 font-display text-xl font-semibold tracking-[-0.015em] tabular-nums">{whole(value)}</dd>
             </div>
           ))}
         </dl>
         <div className="flex h-28 items-end gap-3" aria-label="Taxable supplies by period">
           {analysis.series.map((s) => (
             <div key={s.label} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-              <span className="text-[11px] tabular-nums text-white/70">{s.sales ? whole(s.sales / 1000) + "k" : "—"}</span>
-              <div className="w-full rounded-t-md bg-gradient-to-t from-[var(--cobalt)] to-[var(--lagoon)]" style={{ height: `${Math.max(3, (s.sales / max) * 72)}px`, opacity: s.sales ? 1 : 0.25 }} />
-              <span className="w-full truncate text-center text-[11px] text-white/60">{s.label.replace(/ \d{4}(\/\d{4})?$/, "")}</span>
+              <span className="text-[11px] tabular-nums text-muted-foreground">{s.sales ? whole(s.sales / 1000) + "k" : "—"}</span>
+              <div className="w-full rounded-t-[4px] bg-primary" style={{ height: `${Math.max(3, (s.sales / max) * 72)}px`, opacity: s.sales ? 1 : 0.25 }} />
+              <span className="w-full truncate text-center text-[11px] text-muted-foreground">{s.label.replace(/ \d{4}(\/\d{4})?$/, "")}</span>
             </div>
           ))}
         </div>
         {s12 !== null && (
           <div className="space-y-2">
-            <p className="text-xs text-white/70">
-              Taxable supplies, last 12 months{analysis.annualised ? ` (annualised from ${analysis.months12} months)` : ""}: <span className="font-semibold text-white">AED {whole(s12)}</span>
+            <p className="text-xs text-muted-foreground">
+              Taxable supplies, last 12 months{analysis.annualised ? ` (annualised from ${analysis.months12} months)` : ""}: <span className="font-semibold text-foreground">AED {whole(s12)}</span>
             </p>
-            <div className="relative h-2 rounded-full bg-white/10">
-              <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[var(--cobalt)] to-[var(--lagoon)]" style={{ width: pos(s12) }} />
+            <div className="relative h-1.5 rounded-full bg-[var(--surface-hover)]">
+              <div className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: pos(s12) }} />
               {[187_500, 375_000].map((mark) => (
-                <span key={mark} className="absolute -top-1 h-4 w-px bg-white/60" style={{ left: pos(mark) }} />
+                <span key={mark} className="absolute -top-1 h-3.5 w-px bg-[var(--text-tertiary)]" style={{ left: pos(mark) }} />
               ))}
             </div>
-            <div className="relative h-4 text-[10px] text-white/55">
+            <div className="relative h-4 text-[10px] text-subtle-foreground">
               <span className="absolute -translate-x-1/2" style={{ left: pos(187_500) }}>187.5k voluntary</span>
               <span className="absolute -translate-x-1/2" style={{ left: pos(375_000) }}>375k mandatory</span>
             </div>
           </div>
         )}
       </div>
-      <ul className="space-y-2.5">
-        {analysis.insights.length === 0 && <li className="text-sm text-white/70">Upload or enter a return to see the analysis.</li>}
+      <ul>
+        {analysis.insights.length === 0 && <li className="text-sm text-muted-foreground">Upload or enter a return to see the analysis.</li>}
         {analysis.insights.map((insight) => (
           <InsightItem key={insight.title} insight={insight} />
         ))}
@@ -382,9 +382,9 @@ function InsightItem({ insight }: { insight: Insight }) {
     <li className={cn("insight", `insight-${insight.level}`)}>
       <Icon className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-white">{insight.title}</p>
-        <p className="mt-0.5 text-[13px] leading-5 text-white/75">{insight.text}</p>
-        {insight.law && <p className="mt-1 text-[11px] text-white/45">{insight.law}</p>}
+        <p className="text-sm font-semibold text-foreground">{insight.title}</p>
+        <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{insight.text}</p>
+        {insight.law && <p className="mt-1 text-[11px] text-subtle-foreground">{insight.law}</p>}
       </div>
     </li>
   )

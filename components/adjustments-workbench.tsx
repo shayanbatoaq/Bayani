@@ -240,7 +240,7 @@ function MonthlyPostings({ books, period }: { books: Books; period: Period }) {
       <h2 className="mb-3 font-display text-lg font-semibold">Posted each month</h2>
       <table className="w-full min-w-[32rem] text-sm">
         <thead>
-          <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="py-2">Month</th>
             <th className="py-2 text-right">Prepaid released</th>
             <th className="py-2 text-right">Depreciation</th>
@@ -330,7 +330,7 @@ function ScheduleForm({ kind, company, change, onDone }: { kind: "prepaid" | "de
       <Field label={kind === "prepaid" ? "Spread over" : "Useful life"}>
         <SpreadChoice kind={kind === "prepaid" ? "prepaid" : "asset"} months={months} onChange={setMonths} amount={value} />
       </Field>
-      {error && <p className="text-sm text-[#b42318]">{error}</p>}
+      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       <div className="flex justify-end">
         <Button type="submit" disabled={saving}>
           {saving && <Loader2 className="size-4 animate-spin" />} Save schedule
@@ -391,7 +391,7 @@ function AccrualForm({ company, change, onDone }: { company: Company; change: Ch
         <input type="checkbox" className="mt-1" checked={reverse} onChange={(e) => setReverse(e.target.checked)} />
         <span>Reverse it on the first day of the next month (usual: the actual payment is then booked as the expense).</span>
       </label>
-      {error && <p className="text-sm text-[#b42318]">{error}</p>}
+      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       <div className="flex justify-end">
         <Button type="submit" disabled={saving}>
           {saving && <Loader2 className="size-4 animate-spin" />} Save accrual

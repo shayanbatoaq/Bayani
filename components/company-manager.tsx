@@ -662,7 +662,7 @@ function LogoControl({ company, onUpdated }: { company: Company; onUpdated: (com
         type="button"
         onClick={() => input.current?.click()}
         title={company.logo ? "Change logo" : "Add your logo"}
-        className="group relative grid size-16 place-items-center overflow-hidden rounded-2xl border border-dashed border-[#c3cee2] bg-secondary/60 text-primary transition-colors hover:border-[var(--cobalt)]"
+        className="group relative grid size-16 place-items-center overflow-hidden rounded-2xl border border-dashed border-[var(--hairline-strong)] bg-secondary/60 text-primary transition-colors hover:border-[var(--cobalt)]"
       >
         {busy ? (
           <Loader2 className="size-5 animate-spin" />
