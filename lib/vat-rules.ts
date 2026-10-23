@@ -16,7 +16,6 @@ const NO_VAT = new Set([
   "tax", // payments to the FTA
   "cash",
   "reversed",
-  "review",
   "govFees", // sovereign fees are outside the scope of VAT
   "interest", // margin-based financial services are exempt
   "deposits", // refundable deposits are not consideration

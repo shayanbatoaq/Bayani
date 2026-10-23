@@ -452,6 +452,9 @@ export function BankStatementImport({
     const pattern = patternOf(t.description)
     return vatChoices[t.id] ?? vatRules[pattern] ?? learnedVat.get(pattern) ?? null
   }
+  function setVatAll(answer: VatAnswer) {
+    setVatChoices((v) => ({ ...v, ...Object.fromEntries(vatToAnswer.map((t) => [t.id, answer])) }))
+  }
   function setVat(t: (typeof all)[number], answer: VatAnswer) {
     setVatChoices((v) => ({ ...v, [t.id]: answer }))
     const pattern = patternOf(t.description)
@@ -836,6 +839,9 @@ export function BankStatementImport({
                 </div>
               </div>
 
+              {!vatRegistered && (
+                <p className="note note-info text-sm">The company has no VAT TRN on its profile, so no VAT is taken out of these lines. Add the TRN on the Dashboard to choose “Includes 5% VAT” or “No VAT” for each line.</p>
+              )}
               {vatRegistered && (vatToAnswer.length > 0 || unbilledSales.length > 0) && (
                 <div className="note note-warning items-start text-sm">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
@@ -851,6 +857,18 @@ export function BankStatementImport({
                     {unbilledSales.length > 0 && (
                       <p>
                         <strong>{unbilledSales.length} receipt{unbilledSales.length === 1 ? "" : "s"}</strong> sorted as sales have no invoice in Bayani. Create the invoice from the line, or mark whether the amount includes VAT.
+                      </p>
+                    )}
+                    {vatToAnswer.length > 1 && (
+                      <p className="flex flex-wrap items-center gap-2">
+                        <span>Answer all {vatToAnswer.length} at once:</span>
+                        <button type="button" className="rounded-full border border-current px-2.5 py-0.5 font-medium" onClick={() => setVatAll("incl")}>
+                          Include 5% VAT
+                        </button>
+                        <button type="button" className="rounded-full border border-current px-2.5 py-0.5 font-medium" onClick={() => setVatAll("none")}>
+                          No VAT
+                        </button>
+                        <span className="text-xs opacity-80">(you can still change any line)</span>
                       </p>
                     )}
                     <p className="text-xs opacity-80">Salaries, transfers between your accounts, owner and loan movements, government fees and tax payments are settled as no VAT automatically.</p>
@@ -1431,14 +1449,14 @@ function TransactionRow({
           }}
         />
       )}
-      {((baseCurrency && t.currency !== baseCurrency) || (vatRegistered && !link && category !== "review" && !vatAuto) || onCreateInvoice) && (
+      {((baseCurrency && t.currency !== baseCurrency) || (vatRegistered && !link && !vatAuto) || onCreateInvoice) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs sm:col-span-4 sm:pl-[6.5rem]">
           {baseCurrency && t.currency !== baseCurrency && (
             <span className="text-muted-foreground">
               {t.currency} {money(t.amount)} × {(rate ?? 0).toLocaleString("en-US", { maximumFractionDigits: 6 })} = <strong className="text-foreground">{baseCurrency} {money(t.amount * (rate ?? 0))}</strong>
             </span>
           )}
-          {vatRegistered && !link && category !== "review" && !vatAuto && (
+          {vatRegistered && !link && !vatAuto && (
             <span className={cn("inline-flex items-center gap-1 rounded-full border p-0.5", vat === null && "border-[var(--saffron)] bg-[var(--saffron-wash)]")} role="group" aria-label={`VAT for ${t.description}`}>
               {vat === null && <span className="px-1.5 font-medium text-[#6b4500]">VAT?</span>}
               {(
