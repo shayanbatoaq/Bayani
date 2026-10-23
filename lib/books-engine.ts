@@ -12,7 +12,8 @@ export const BOOKS_PREFIX = "books-"
 export const isBookRow = (row: { id: string }) => row.id.startsWith(BOOKS_PREFIX)
 
 type Leg = { ledgerName: string; scheduleKey: string; amount: number }
-export type Entry = { date: string; source: string; legs: Leg[] }
+/** carryOnly: an opening balance used only when earlier years are brought into a closing balance year. */
+export type Entry = { date: string; source: string; legs: Leg[]; carryOnly?: boolean }
 export type BookRow = { id: string; ledgerName: string; amount: number; scheduleKey: string }
 
 const AR = { ledgerName: "Accounts Receivable", scheduleKey: "receivables" }
@@ -98,6 +99,10 @@ export function bookEntries(books: Books): Entry[] {
     else entries.push({ date: p.date, source: "Supplier payment", legs: [leg(AP, p.amount), leg(settle(p.method), -p.amount)] })
   }
   for (const s of books.schedules) {
+    // A statement line paid for it: in a closing balance year the earlier statements are not in the
+    // figures (their bank balance is already in the opening funds), so the payment is carried in.
+    if (s.source.type === "bankLine")
+      entries.push({ date: s.source.line.date, source: s.label, carryOnly: true, legs: [leg(s.kind === "depreciation" ? ASSETS : PREPAID, s.amount), leg(RETAINED, -s.amount)] })
     const expense = s.kind === "depreciation" ? DEPRECIATION : { ledgerName: s.ledgerName, scheduleKey: s.scheduleKey }
     const against = s.kind === "depreciation" ? ALLOWANCE : PREPAID
     for (const part of instalments(s.amount, s.start, s.months))
@@ -127,7 +132,9 @@ export function bookRows(books: Books, period: { start: string; end: string }, f
   }
   for (const entry of bookEntries(books)) {
     if (entry.date > period.end) continue
-    if (entry.date >= period.start) entry.legs.forEach(add)
+    if (entry.date >= period.start) {
+      if (!entry.carryOnly) entry.legs.forEach(add)
+    }
     else if (!flows) for (const l of entry.legs) add(BALANCE_SHEET.has(l.scheduleKey) ? l : { ...RETAINED, amount: l.amount })
   }
   return [...totals.values()]
@@ -144,6 +151,7 @@ export function bookRows(books: Books, period: { start: string; end: string }, f
 export function bookYears(books: Books, periodOf: (year: number) => { start: string; end: string }) {
   const years = new Set<number>()
   for (const entry of bookEntries(books)) {
+    if (entry.carryOnly) continue
     let year = Number(entry.date.slice(0, 4))
     if (entry.date > periodOf(year).end) year++
     else if (entry.date < periodOf(year).start) year--
@@ -186,32 +194,42 @@ const words = (s: string) =>
     .split(/\s+/)
     .filter((w) => w.length > 2)
 
+type Open = { kind: "invoice" | "bill"; id: string; number: string; party: string; partyWords: string[]; due: number; total: number; date: string }
+const openCache = new WeakMap<Books, Open[]>()
+/** Invoices and bills not yet fully paid, worked out once per version of the books. */
+function openDocuments(books: Books): Open[] {
+  const cached = openCache.get(books)
+  if (cached) return cached
+  const out: Open[] = []
+  for (const inv of books.invoices) {
+    const st = invoiceStatus(books, inv)
+    if (st.due <= 0) continue
+    const party = books.clients.find((c) => c.id === inv.clientId)?.name ?? ""
+    out.push({ kind: "invoice", id: inv.id, number: inv.number, party, partyWords: words(party), due: st.due, total: st.total, date: inv.date })
+  }
+  for (const bill of books.bills) {
+    const st = billStatus(books, bill)
+    if (st.due <= 0) continue
+    const party = books.vendors.find((v) => v.id === bill.vendorId)?.name ?? ""
+    out.push({ kind: "bill", id: bill.id, number: bill.number, party, partyWords: words(party), due: st.due, total: st.total, date: bill.date })
+  }
+  openCache.set(books, out)
+  return out
+}
+
 /** Open invoices (money in) or bills (money out) a statement line could be paying. */
 export function matchCandidates(books: Books, line: { amount: number; description: string; date: string }): MatchCandidate[] {
   const text = ` ${words(line.description).join(" ")} `
+  const lower = line.description.toLowerCase()
+  const kind = line.amount > 0 ? "invoice" : "bill"
+  const paid = Math.abs(line.amount)
   const out: MatchCandidate[] = []
-  const nameHit = (name: string) => {
-    const w = words(name)
-    return w.length > 0 && w.slice(0, 2).every((x) => text.includes(` ${x} `))
+  for (const doc of openDocuments(books)) {
+    if (doc.kind !== kind || doc.date > line.date) continue
+    const amount = Math.abs(doc.due - paid) < 0.01 || Math.abs(doc.total - paid) < 0.01
+    const name = (doc.partyWords.length > 0 && doc.partyWords.slice(0, 2).every((x) => text.includes(` ${x} `))) || (doc.number.length > 3 && lower.includes(doc.number.toLowerCase()))
+    if (amount || name) out.push({ kind, id: doc.id, number: doc.number || "(no number)", party: doc.party, due: doc.due, date: doc.date, reason: amount && name ? "both" : amount ? "amount" : "name" })
   }
-  if (line.amount > 0)
-    for (const inv of books.invoices) {
-      const st = invoiceStatus(books, inv)
-      if (st.due <= 0 || inv.date > line.date) continue
-      const client = books.clients.find((c) => c.id === inv.clientId)?.name ?? ""
-      const amount = Math.abs(st.due - line.amount) < 0.01 || Math.abs(st.total - line.amount) < 0.01
-      const name = nameHit(client) || (inv.number.length > 3 && line.description.toLowerCase().includes(inv.number.toLowerCase()))
-      if (amount || name) out.push({ kind: "invoice", id: inv.id, number: inv.number, party: client, due: st.due, date: inv.date, reason: amount && name ? "both" : amount ? "amount" : "name" })
-    }
-  else
-    for (const bill of books.bills) {
-      const st = billStatus(books, bill)
-      if (st.due <= 0 || bill.date > line.date) continue
-      const vendor = books.vendors.find((v) => v.id === bill.vendorId)?.name ?? ""
-      const amount = Math.abs(st.due + line.amount) < 0.01
-      const name = nameHit(vendor) || (bill.number.length > 3 && line.description.toLowerCase().includes(bill.number.toLowerCase()))
-      if (amount || name) out.push({ kind: "bill", id: bill.id, number: bill.number || "(no number)", party: vendor, due: st.due, date: bill.date, reason: amount && name ? "both" : amount ? "amount" : "name" })
-    }
   const rank = { both: 0, amount: 1, name: 2 }
   return out.sort((a, b) => rank[a.reason] - rank[b.reason] || b.date.localeCompare(a.date)).slice(0, 5)
 }

@@ -127,7 +127,8 @@ async function withBooks(owner: string, records: FinancialRecord[]): Promise<Fin
           currency: "AED",
           openingEquity: null,
           rows: [],
-          entryMode: "closing",
+          // Built on the year before when there is one, so its balances carry forward.
+          entryMode: out.some((r) => r.clientId === companyId && r.year === year - 1) ? "movement" : "closing",
           id: `${companyId}-${year}`,
           revision: 0,
           updatedAt: "",

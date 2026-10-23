@@ -29,3 +29,10 @@ One company per subscription in the live product; each further company is a paid
 ## Storage
 
 Companies are saved beside the financial records under `.data/financial-records/<owner>/companies/`. See `financial-data.md` for storage and persistence requirements.
+
+## Invoices, bills and adjustments
+
+- Books (clients, suppliers, invoices, credit notes, bills, payments, schedules) are kept per company in `books/<companyId>.json` under the workspace folder; bill documents in `books/attachments/<companyId>/`.
+- Their accounting is added to each year's trial balance when records are read (rows with ids starting `books-`); they are never saved with the typed figures.
+- Bill reading runs in the browser (PDF text or OCR) with document rules. With `OPENROUTER_API_KEY` or `OPENAI_API_KEY` set, an AI reading (text and, for photos, the image) fills what the rules miss. `OPENROUTER_EXTRACT_MODEL` / `OPENAI_EXTRACT_MODEL` choose the model.
+- E-invoicing quote requests are saved in `asp-requests.json`; set `FINSCOPE_ASP_WEBHOOK` (or the audit webhook) to forward them.

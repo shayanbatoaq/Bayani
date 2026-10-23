@@ -17,6 +17,7 @@ import {
   type OpeningEquity,
 } from "@/lib/financial-statements"
 import { toPlain, type CustomHead } from "@/lib/ledger-heads"
+import { isBookRow } from "@/lib/books-engine"
 import { closingRowsFor, priorYearOf, statementsFor, type EntryMode, type PriorYear } from "@/lib/movement"
 import { formatAmount } from "@/lib/trial-balance"
 import { createLedgerRow, type LedgerRow } from "@/lib/trial-balance"
@@ -87,10 +88,13 @@ export function FinancialDataInput() {
         entryMode,
       }
     : null
+  // Rows from invoices, bills and adjustments: shown and counted, never saved with the typed figures.
+  const bookRows = useMemo(() => (companyId && year ? (records.find((r) => r.clientId === companyId && r.year === year)?.rows ?? []).filter(isBookRow) : []), [records, companyId, year])
   const signature = input ? JSON.stringify(input) : ""
   const dirty = Boolean(input) && signature !== savedSignature && (rows.length > 0 || revision > 0)
   const prior = company && year ? priorYearOf(records, company.id, year) : null
-  const resolved = input ? statementsFor(input, prior) : null
+  const preview = input ? { ...input, rows: [...input.rows, ...bookRows] } : null
+  const resolved = preview ? statementsFor(preview, prior) : null
   const statements = resolved?.statements ?? null
 
   // Figures save themselves: shortly after each change, and straight away when leaving the page.
@@ -120,7 +124,7 @@ export function FinancialDataInput() {
     const record = companyRecords.find((item) => item.year === next)
     const prior = companyRecords.find((item) => item.year === next - 1)
     const nextMode: EntryMode = record?.entryMode ?? (prior ? "movement" : "closing")
-    const nextRows = record?.rows.map((row) => ({ ...createLedgerRow(row), ...row })) ?? []
+    const nextRows = record?.rows.filter((row) => !isBookRow(row)).map((row) => ({ ...createLedgerRow(row), ...row })) ?? []
     let nextOpening = BLANK
     let source: typeof openingSource = ""
     if (record?.openingEquity) {
@@ -148,7 +152,7 @@ export function FinancialDataInput() {
             year: next,
             currency: "AED",
             openingEquity: record.openingEquity,
-            rows: record.rows,
+            rows: record.rows.filter((row) => !isBookRow(row)),
             entryMode: nextMode,
           })
         : ""
@@ -359,13 +363,15 @@ export function FinancialDataInput() {
             <ClosingBalances
               year={year}
               prior={prior}
-              movements={input!.rows}
+              movements={preview!.rows}
               closing={resolved.closingRows}
               customHeads={company.customHeads}
             />
           )}
 
-          {rows.length > 0 && statements && (
+          {bookRows.length > 0 && <BookRows rows={bookRows} />}
+
+          {(rows.length > 0 || bookRows.length > 0) && statements && (
             <>
               <details
                 className="rounded-xl border bg-white p-5"
@@ -466,6 +472,42 @@ export function FinancialDataInput() {
         </>
       )}
     </div>
+  )
+}
+
+/** Read-only rows that come from Invoices, Bills and Adjustments. */
+function BookRows({ rows }: { rows: FinancialLedger[] }) {
+  return (
+    <details className="rounded-xl border bg-white p-5" open>
+      <summary className="cursor-pointer font-medium">From invoices, bills and adjusting entries ({rows.length})</summary>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Added automatically and kept up to date. Change them in{" "}
+        <Link className="text-[var(--cobalt)] underline" href="/invoices">
+          Invoices
+        </Link>
+        ,{" "}
+        <Link className="text-[var(--cobalt)] underline" href="/bills">
+          Bills
+        </Link>{" "}
+        or{" "}
+        <Link className="text-[var(--cobalt)] underline" href="/adjustments">
+          Adjustments
+        </Link>
+        . Debits are positive, credits negative.
+      </p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[24rem] text-sm">
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-b last:border-0">
+                <td className="py-1.5">{row.ledgerName}</td>
+                <td className="py-1.5 text-right font-mono">{row.amount < 0 ? `(${formatAmount(-row.amount)})` : formatAmount(row.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   )
 }
 

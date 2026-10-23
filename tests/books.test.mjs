@@ -117,6 +117,21 @@ test("depreciation and accruals, with the accrual reversed the next month", () =
   assert.equal(get(bookRows(books, FY(2026), false), "Accrued Expenses"), 0)
 })
 
+test("a statement line spread over months is carried into later closing balance years", () => {
+  const line = { id: "f:3", date: "2026-02-20", amount: -24000, description: "EJARI OFFICE RENT" }
+  const books = run(emptyBooks(), { action: "schedule", schedule: { id: "s9", kind: "prepaid", label: "Rent", ledgerName: "Rent Expense", scheduleKey: "rent", amount: 24000, start: line.date, months: 12, source: { type: "bankLine", line } } })
+  assert.equal(linkedLine(books, line).category, "prepaid")
+  // The year of payment: the statement posts the prepayment, the books release 11 months.
+  const y = bookRows(books, FY(2026), false)
+  assert.equal(get(y, "Prepaid Expense"), -22000)
+  assert.equal(get(y, "Rent Expense"), 22000)
+  const next = bookRows(books, FY(2027), false)
+  assert.equal(get(next, "Prepaid Expense"), 0)
+  assert.equal(get(next, "Rent Expense"), 2000)
+  assert.equal(get(next, "Retained Earnings"), -2000)
+  assert.deepEqual(bookYears(books, FY), [2026, 2027])
+})
+
 test("books years merge into the trial balance and movement years carry them forward", () => {
   const books = sample()
   assert.deepEqual(bookYears(books, FY), [2025])
