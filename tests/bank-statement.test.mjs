@@ -225,9 +225,40 @@ test("monthly statements uploaded out of order are joined in date order", () => 
   const loose = mergeStatements([
     { account: unnamed("a", 1000, 1300, "2026-01-05", "2026-01-20"), bank: "Bank", file: "a.pdf" },
     { account: unnamed("b", 1300, 900, "2026-02-01", "2026-02-20"), bank: "Bank", file: "b.pdf" },
-    { account: unnamed("c", 50, 70, "2026-01-01", "2026-01-31"), bank: "Bank", file: "c.pdf" },
+    // another account in the same month: different lines and balances
+    { account: { ...unnamed("c", 50, 70, "2026-01-01", "2026-01-31"), transactions: [{ id: "c0", date: "2026-01-10", description: "Other", amount: 20, balance: 70 }] }, bank: "Bank", file: "c.pdf" },
   ])
   assert.deepEqual(loose.map((m) => m.files), [["a.pdf", "b.pdf"], ["c.pdf"]])
   assert.equal(twice[0].account.transactions.length, 2)
   assert.equal(twice[0].duplicates, 2)
+})
+
+test("Excel and CSV exports in the layouts UAE banks use", async () => {
+  const one = (rows) => parseTableStatement(rows, "x.xlsx").accounts[0]
+  // Short and combined headings, dates with times, Excel serial dates
+  let a = one([["Statement"], ["Account: 123"], [], ["Tran Dt", "Particulars", "Withdrawals (AED)", "Deposits (AED)", "Balance (AED)"], [45660, "Sale", "", 500, 1500], [45661, "Fee", 20, "", 1480]])
+  assert.equal(a.transactions.length, 2)
+  assert.equal(a.mismatches, 0)
+  a = one([["Date & Time", "Beneficiary / Description", "Money Out", "Money In", "Balance"], ["03/01/2025 10:22", "Sale", "", "500.00", "1,500.00"]])
+  assert.equal(a.transactions[0].date, "2025-01-03")
+  // A single amount with a Dr/Cr column
+  a = one([["Posting Date", "Transaction Details", "Dr/Cr", "Amount", "Running Balance"], ["2025-01-03", "Sale", "CR", "500.00", "1,500.00"], ["2025-01-04", "Fee", "DR", "20.00", "1,480.00"]])
+  assert.deepEqual(a.transactions.map((t) => t.amount), [500, -20])
+  // Currency from the headings
+  a = one([["Value Date", "Transaction Date", "Description", "Debit (USD)", "Credit (USD)", "Balance (USD)"], ["03/01/2025", "03/01/2025", "Sale", "", "500.00", "1,500.00"]])
+  assert.equal(a.currency, "USD")
+  // Newest first
+  a = one([["Date", "Description", "Debit", "Credit", "Balance"], ["31/01/2025", "Rent", "1,000.00", "", "9,000.00"], ["15/01/2025", "Sale", "", "2,000.00", "10,000.00"], ["02/01/2025", "Fee", "50.00", "", "8,000.00"]])
+  assert.equal(a.mismatches, 0)
+  assert.equal(a.closing, 9000)
+  // Old .xls files (and HTML / XML "Excel" exports) are read through SheetJS
+  const XLSX = await import("xlsx")
+  const book = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["Txn Date", "Narration", "Debit", "Credit", "Balance"], ["03/01/2025", "Sale", "", 500, 1500], ["04/01/2025", "Fee", 20, "", 1480]]), "Statement")
+  const bytes = XLSX.write(book, { type: "array", bookType: "biff8" })
+  const back = XLSX.read(new Uint8Array(bytes), { type: "array", cellDates: true, dense: true })
+  const rows = XLSX.utils.sheet_to_json(back.Sheets[back.SheetNames[0]], { header: 1, raw: true, defval: null, blankrows: false })
+  a = one(rows)
+  assert.equal(a.transactions.length, 2)
+  assert.equal(a.closing, 1480)
 })

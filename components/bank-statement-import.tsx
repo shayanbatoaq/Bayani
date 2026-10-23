@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   BellRing,
+  CalendarRange,
   CheckCircle2,
   CloudUpload,
   FileText,
@@ -41,7 +42,8 @@ import {
 } from "@/lib/bank-categories"
 import { StatementPasswordError, readStatementFile } from "@/lib/bank-reader"
 import type { BankSession } from "@/lib/bank-session"
-import { mergeStatements, type BankAccount, type MergedAccount, type ParsedStatement } from "@/lib/bank-statement"
+import { mergeStatements, parseTableStatement, type BankAccount, type MergedAccount, type ParsedStatement } from "@/lib/bank-statement"
+import type { AiStatementPage } from "@/app/api/bank-statements/ai/route"
 import { formatLongDate } from "@/lib/company"
 import { categoryOf, scheduleLines } from "@/lib/financial-statements"
 import { ledgerHeads, type CustomHead } from "@/lib/ledger-heads"
@@ -53,6 +55,7 @@ type Loaded = {
   file?: File
   name: string
   status: "reading" | "done" | "error" | "password"
+  note?: string
   parsed?: ParsedStatement
   error?: string
   password?: string
@@ -112,7 +115,10 @@ export function BankStatementImport({
   onAddHead,
   baseCurrency = "AED",
   company,
+  onOtherYears,
 }: {
+  /** Lines dated in other financial years were posted to those years (the page reloads their figures). */
+  onOtherYears?: (years: number[]) => void
   /** The company, for invoices made from receipts. */
   company?: Company
   /** Everything is converted into this currency, at the rate shown. */
@@ -201,27 +207,43 @@ export function BankStatementImport({
   const sessionUrl = `/api/bank-statements?companyId=${sessionKey.companyId}&year=${sessionKey.year}`
   useEffect(() => {
     let cancelled = false
-    fetch(sessionUrl, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data: { session?: BankSession | null }) => {
-        if (cancelled || !data.session) return
-        const saved = data.session
-        setFiles(saved.files.map((f) => ({ id: f.id, name: f.name, status: "done" as const, parsed: { bank: f.bank, accounts: f.accounts, warnings: f.warnings } })))
-        setOverrides(saved.overrides)
-        setSessionRules(saved.sessionRules)
-        if (saved.version >= 2) setRates(saved.rates)
-        setVatChoices(saved.vatChoices)
-        setVatRules(saved.vatRules)
-        setOpeningSource(saved.openingSource)
-        setAppliedAt(saved.appliedAt)
-        setView(Object.keys(saved.overrides).length ? "all" : "review")
+    // Statements uploaded under neighbouring years can hold lines of this one (a statement running
+    // from November to January): their statements are brought in too, so every month is here once.
+    const years = [-2, -1, 0, 1, 2].map((d) => sessionKey.year + d)
+    Promise.all(
+      years.map((y) =>
+        fetch(`/api/bank-statements?companyId=${sessionKey.companyId}&year=${y}`, { cache: "no-store" })
+          .then((r) => r.json())
+          .then((data: { session?: BankSession | null }) => ({ y, session: data.session ?? null }))
+          .catch(() => ({ y, session: null })),
+      ),
+    )
+      .then((found) => {
+        if (cancelled) return
+        const own = found.find((f) => f.y === sessionKey.year)?.session ?? null
+        const others = found.filter((f) => f.y !== sessionKey.year && f.session).map((f) => f.session!)
+        const filesById = new Map<string, BankSession["files"][number]>()
+        for (const s of [own, ...others]) for (const f of s?.files ?? []) if (!filesById.has(f.id)) filesById.set(f.id, f)
+        if (!filesById.size) return
+        // Choices from other years first, this year's own on top.
+        const merge = <T,>(pick: (s: BankSession) => Record<string, T>) => Object.assign({}, ...others.map(pick), own ? pick(own) : {}) as Record<string, T>
+        setFiles([...filesById.values()].map((f) => ({ id: f.id, name: f.name, status: "done" as const, parsed: { bank: f.bank, accounts: f.accounts, warnings: f.warnings } })))
+        setOverrides(merge((s) => s.overrides))
+        setSessionRules(merge((s) => s.sessionRules))
+        setVatChoices(merge((s) => s.vatChoices))
+        setVatRules(merge((s) => s.vatRules))
+        if (own && own.version >= 2) setRates(own.rates)
+        if (own) {
+          setOpeningSource(own.openingSource)
+          setAppliedAt(own.appliedAt)
+        }
+        setView(own && Object.keys(own.overrides).length ? "all" : "review")
       })
-      .catch(() => {})
       .finally(() => !cancelled && setRestoring(false))
     return () => {
       cancelled = true
     }
-  }, [sessionUrl])
+  }, [sessionUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function clearAll() {
     if (!window.confirm("Remove all uploaded statements and the choices made for this year? Balances already in the trial balance stay.")) return
@@ -237,7 +259,14 @@ export function BankStatementImport({
     setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "reading", error: undefined } : f)))
     try {
       if (!entry.file) return
-      const read = await readStatementFile(entry.file, entry.password)
+      let read = await readStatementFile(entry.file, entry.password)
+      // Nothing the rules can read (a scanned statement, an unusual layout): the AI reads the pages.
+      if (!read.accounts.length && /\.pdf$/i.test(entry.name)) {
+        setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, note: "Reading the pages with AI…" } : f)))
+        const byAi = await readStatementWithAi(entry.file).catch((cause) => ({ error: cause instanceof Error ? cause.message : "AI reading failed." }))
+        if ("accounts" in byAi && byAi.accounts.length) read = byAi
+        else if ("error" in byAi) read = { ...read, warnings: [...read.warnings, byAi.error] }
+      }
       // Line ids carry the file's id so lines from different statements never share one.
       const parsed = {
         ...read,
@@ -273,10 +302,9 @@ export function BankStatementImport({
   }
 
   function add(list: FileList | File[]) {
-    const known = new Set(files.map((f) => f.name))
+    // Files can be added at once or over time; the same lines in two files are counted once.
     const entries = [...list]
-      .filter((file) => !known.has(file.name))
-      .slice(0, 24)
+      .slice(0, 40)
       .map((file) => ({
         id: crypto.randomUUID(),
         file,
@@ -401,22 +429,24 @@ export function BankStatementImport({
   const foreign = currencies.filter((c) => c !== baseCurrency)
   const vatAed = vatRegistered && baseCurrency !== "AED" ? ["AED"] : []
   const seriesKey = [...foreign, ...vatAed.map((c) => `>${c}`)].join(",")
+  // Rates for every day the statements cover (lines of neighbouring years included).
+  const span = all.reduce((r, t) => ({ start: t.date < r.start ? t.date : r.start, end: t.date > r.end ? t.date : r.end }), { start: period.start, end: period.end })
   useEffect(() => {
     if (!seriesKey) return
     let cancelled = false
-    const from = new Date(`${period.start}T00:00:00Z`)
+    const from = new Date(`${span.start}T00:00:00Z`)
     from.setUTCDate(from.getUTCDate() - 7)
     const start = from.toISOString().slice(0, 10)
     for (const key of seriesKey.split(",")) {
       const [a, b] = key.startsWith(">") ? [baseCurrency, key.slice(1)] : [key, baseCurrency]
-      fetchSeries(a, b, start, period.end)
+      fetchSeries(a, b, start, span.end)
         .then((r) => !cancelled && setSeries((x) => ({ ...x, [key]: r })))
         .catch(() => !cancelled && setSeries((x) => ({ ...x, [key]: "failed" })))
     }
     return () => {
       cancelled = true
     }
-  }, [seriesKey, baseCurrency, period.start, period.end])
+  }, [seriesKey, baseCurrency, span.start, span.end])
   const seriesOf = (c: string) => (typeof series[c] === "object" ? (series[c] as RateSeries) : undefined)
   /** Units of the base currency per unit of `c` on a date: the user's rate, else that day's rate. */
   const rateAt = (c: string, date: string) => (c === baseCurrency ? 1 : rates[c] || rateOn(seriesOf(c), date))
@@ -430,9 +460,18 @@ export function BankStatementImport({
           .map((t) => ({ t, candidates: matchCandidates(books, { ...t, amount: t.amount * lineRate(t), original: { amount: t.amount, currency: t.currency }, base: baseCurrency }) }))
           .filter((m) => m.candidates.length)
       : []
-  // Balances at the rates on the first and last day of the year; lines at the rate of their day.
-  const openingAed = accountFigures.reduce((s, a) => s + a.opening * rateAt(a.account.currency, period.start), 0)
-  const closingAed = accountFigures.reduce((s, a) => s + a.closing * rateAt(a.account.currency, period.end), 0)
+  // Balances at the rates on the first and last day of a year; lines at the rate of their day.
+  const balancesFor = (p: { start: string; end: string }) =>
+    accounts.reduce(
+      (r, { account }) => {
+        const before = account.transactions.filter((t) => t.date < p.start).reduce((s, t) => s + t.amount, 0)
+        const within = account.transactions.filter((t) => t.date >= p.start && t.date <= p.end).reduce((s, t) => s + t.amount, 0)
+        const opening = (account.opening ?? 0) + before
+        return { opening: r.opening + opening * rateAt(account.currency, p.start), closing: r.closing + (opening + within) * rateAt(account.currency, p.end) }
+      },
+      { opening: 0, closing: 0 },
+    )
+  const { opening: openingAed } = balancesFor(period)
   const coverage = coverageOf(
     accounts.map((a) => a.account),
     period,
@@ -466,7 +505,7 @@ export function BankStatementImport({
   }
   const unbilledSales = books ? inPeriod.filter((t) => t.amount > 0 && isSales(t) && !links.has(t.id)) : []
   const vatToAnswer = inPeriod.filter((t) => vatOf(t) === null && effective(t) !== "review")
-  const vatItems = inPeriod.flatMap((t) => {
+  const vatItemsFor = (lines: typeof all) => lines.flatMap((t) => {
     const category = effective(t)
     const base = round2(t.amount * lineRate(t))
     if (category === "vatPaid")
@@ -486,12 +525,17 @@ export function BankStatementImport({
       },
     ]
   })
+  const vatItems = vatItemsFor(inPeriod)
 
   const counted = (t: (typeof all)[number]) => !["transfer", "reversed"].includes(effective(t))
   const moneyIn = inPeriod.filter((t) => t.amount > 0 && counted(t)).reduce((s, t) => s + t.amount * lineRate(t), 0)
   const moneyOut = inPeriod.filter((t) => t.amount < 0 && counted(t)).reduce((s, t) => s + t.amount * lineRate(t), 0)
 
   function buildRows() {
+    return buildRowsFor(period, entryMode, openingSource)
+  }
+  function buildRowsFor(p: { start: string; end: string }, mode: "closing" | "movement", source: (typeof OPENING_SOURCES)[number]["key"]) {
+    const { opening: openingAed, closing: closingAed } = balancesFor(p)
     const out = new Map<string, { ledgerName: string; amount: number; scheduleKey: string }>()
     const push = (ledgerName: string, scheduleKey: string, amount: number) => {
       const key = `${ledgerName}|${scheduleKey}`
@@ -501,7 +545,7 @@ export function BankStatementImport({
     }
     let pending = 0
     let lines = 0
-    for (const t of inPeriod) {
+    for (const t of all.filter((x) => x.date >= p.start && x.date <= p.end)) {
       const key = effective(t)
       // Each line to the fils in the base currency, as the invoices and bills it settles are.
       const amount = round2(t.amount * lineRate(t))
@@ -523,11 +567,11 @@ export function BankStatementImport({
     if (foreign.length && Math.abs(exchange) >= 0.01) push("Exchange Gain / (Loss)", "exchange", -exchange)
     // Lines still under review are left in the bank so the figures balance; they are reported in the summary.
     if (Math.abs(pending) > 0.004) push("Suspense (bank lines under review)", "otherPayables", -pending)
-    if (entryMode === "movement") push("Bank", "bank", closingAed - openingAed)
+    if (mode === "movement") push("Bank", "bank", closingAed - openingAed)
     else {
       push("Bank", "bank", closingAed)
-      const source = OPENING_SOURCES.find((s) => s.key === openingSource)!
-      if (Math.abs(openingAed) > 0.004) push(source.ledgerName, source.scheduleKey, -openingAed)
+      const from = OPENING_SOURCES.find((s) => s.key === source)!
+      if (Math.abs(openingAed) > 0.004) push(from.ledgerName, from.scheduleKey, -openingAed)
     }
     const rows = [...out.values()].map((r) => ({ ...r, amount: Math.round(r.amount * 100) / 100 })).filter((r) => r.amount !== 0)
     // Rounding each head to fils can leave a fils or two; it goes to the largest income or expense head.
@@ -619,8 +663,101 @@ export function BankStatementImport({
     }
   }, [sessionUrl])
 
+  /* ---- lines of other financial years go to those years ---- */
+  const endMonth = Number(period.end.slice(5, 7))
+  const yearOf = (date: string) => (Number(date.slice(5, 7)) > endMonth ? Number(date.slice(0, 4)) + 1 : Number(date.slice(0, 4)))
+  const periodOf = (year: number) => {
+    const shift = (iso: string, by: number) => {
+      const [y, m, d] = iso.split("-").map(Number)
+      const last = new Date(Date.UTC(y + by, m, 0)).getUTCDate()
+      const lastBefore = new Date(Date.UTC(y, m, 0)).getUTCDate()
+      return new Date(Date.UTC(y + by, m - 1, d === lastBefore ? last : Math.min(d, last))).toISOString().slice(0, 10)
+    }
+    return { start: shift(period.start, year - sessionKey.year), end: shift(period.end, year - sessionKey.year) }
+  }
+  const otherYears = [...new Set(all.map((t) => yearOf(t.date)))].filter((y) => y !== sessionKey.year && Math.abs(y - sessionKey.year) <= 2).sort()
+  const [rollover, setRollover] = useState<Record<number, "posting" | "posted" | "kept" | "error">>({})
+  const postedRollover = useRef<Record<number, string>>({})
+
+  /**
+   * Posts the lines dated in another financial year to that year: its saved statement work is
+   * updated, and its trial balance gets the statement balances (replacing earlier statement
+   * balances only). A year whose figures were entered another way (typed or imported, not from
+   * statements) is left alone, so nothing is counted twice.
+   */
+  async function postOtherYears(force = false) {
+    if (!otherYears.length || missingRates.length) return
+    let records: FinancialRecordLite[] = []
+    try {
+      records = ((await (await fetch("/api/financial-data", { cache: "no-store" })).json()).records ?? []) as FinancialRecordLite[]
+    } catch {
+      return
+    }
+    const done: number[] = []
+    for (const year of otherYears) {
+      const p = periodOf(year)
+      const existing = records.find((r) => r.clientId === sessionKey.companyId && r.year === year)
+      const own = existing?.rows.filter((r) => !r.id.startsWith("books-")) ?? []
+      const fromStatements = own.some((r) => r.id.startsWith("bank-"))
+      if (existing && existing.revision > 0 && own.length && !fromStatements) {
+        setRollover((x) => ({ ...x, [year]: "kept" }))
+        continue
+      }
+      const priorExists = records.some((r) => r.clientId === sessionKey.companyId && r.year === year - 1 && r.revision > 0) || year - 1 === sessionKey.year
+      const mode: "closing" | "movement" = existing?.revision ? (existing.entryMode ?? "closing") : priorExists ? "movement" : "closing"
+      const rows = buildRowsFor(p, mode, "retained")
+      const signature = JSON.stringify([rows, mode])
+      if (!force && postedRollover.current[year] === signature) continue
+      setRollover((x) => ({ ...x, [year]: "posting" }))
+      try {
+        for (const r of rows) {
+          const known = ledgerHeads.some((h) => h.name.toLowerCase() === r.ledgerName.toLowerCase()) || customHeads.some((h) => h.name.toLowerCase() === r.ledgerName.toLowerCase())
+          if (!known) await onAddHead({ name: r.ledgerName, scheduleKey: r.scheduleKey })
+        }
+        const lines = all.filter((t) => t.date >= p.start && t.date <= p.end)
+        const session = { ...(JSON.parse(sessionBody || "{}") as BankSession), appliedAt: new Date().toISOString(), vatItems: vatItemsFor(lines) }
+        const put = await fetch(`/api/bank-statements?companyId=${sessionKey.companyId}&year=${year}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(session) })
+        if (!put.ok) throw new Error()
+        const bankRows = rows.map((r, i) => ({
+          id: `bank-${i + 1}-${crypto.randomUUID().slice(0, 8)}`,
+          ledgerName: r.ledgerName,
+          amount: r.amount,
+          scheduleKey: r.ledgerName === "VAT Control" ? (r.amount >= 0 ? "taxReceivable" : "taxPayable") : r.scheduleKey,
+        }))
+        const response = await fetch("/api/financial-data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientId: sessionKey.companyId,
+            clientName: companyName,
+            year,
+            currency: baseCurrency,
+            openingEquity: existing?.revision ? existing.openingEquity : null,
+            rows: [...own.filter((r) => !r.id.startsWith("bank-")), ...bankRows],
+            entryMode: mode,
+            revision: existing?.revision ?? 0,
+          }),
+        })
+        if (!response.ok) throw new Error()
+        postedRollover.current[year] = signature
+        setRollover((x) => ({ ...x, [year]: "posted" }))
+        done.push(year)
+      } catch {
+        setRollover((x) => ({ ...x, [year]: "error" }))
+      }
+    }
+    if (done.length) onOtherYears?.(done)
+  }
+  // Once the statements are in the trial balance, other years follow every change too.
+  const rolloverSignature = restoring || !appliedAt || !otherYears.length ? "" : JSON.stringify(otherYears.map((y) => buildRowsFor(periodOf(y), "movement", "retained")))
+  useEffect(() => {
+    if (!rolloverSignature) return
+    const timer = setTimeout(() => void postOtherYears(), 1500)
+    return () => clearTimeout(timer)
+  }, [rolloverSignature]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const summaryText = (count: number) =>
-    `${inPeriod.length} bank lines from ${accounts.length} account${accounts.length === 1 ? "" : "s"} are in the trial balance as ${count} balances.${reviewCount ? ` ${reviewCount} lines still under review are held in "Suspense (bank lines under review)".` : ""}${outside ? ` ${outside} lines outside ${formatLongDate(period.start)} – ${formatLongDate(period.end)} were left out.` : ""}`
+    `${inPeriod.length} bank lines from ${accounts.length} account${accounts.length === 1 ? "" : "s"} are in the trial balance as ${count} balances.${reviewCount ? ` ${reviewCount} lines still under review are held in "Suspense (bank lines under review)".` : ""}${outside ? ` ${outside} lines dated in other years go to those years.` : ""}`
 
   async function apply() {
     setApplying(true)
@@ -630,6 +767,7 @@ export function BankStatementImport({
       const rows = buildRows()
       setAppliedAt(new Date().toISOString())
       await onApply(rows, summaryText(rows.length), true)
+      await postOtherYears(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not add the figures.")
     } finally {
@@ -714,14 +852,14 @@ export function BankStatementImport({
         >
           <UploadCloud className="size-7 text-[var(--cobalt)]" />
           <span className="font-medium">Choose statements or drop them here</span>
-          <span className="text-xs text-muted-foreground">PDF, XLSX or CSV · several files at once · up to 30 MB each</span>
+          <span className="text-xs text-muted-foreground">PDF, Excel (XLSX, XLS) or CSV · several files at once, or more any time · months are put in order and repeated lines counted once</span>
         </button>
         <input
           ref={input}
           type="file"
           multiple
           className="hidden"
-          accept=".pdf,.xlsx,.csv"
+          accept=".pdf,.xlsx,.xls,.xlsm,.ods,.csv"
           aria-label="Bank statement files"
           onChange={(e) => e.target.files && add(e.target.files)}
         />
@@ -764,7 +902,32 @@ export function BankStatementImport({
                 </span>
               </p>
             )}
-            {outside > 0 && inPeriod.length > 0 && <p className="text-xs text-muted-foreground">{outside} lines dated outside the financial year are not counted.</p>}
+            {otherYears.length > 0 && (
+              <div className="note note-info text-sm">
+                <CalendarRange className="mt-0.5 size-4 shrink-0" />
+                <div className="space-y-1">
+                  {otherYears.map((y) => {
+                    const p = periodOf(y)
+                    const n = all.filter((t) => t.date >= p.start && t.date <= p.end).length
+                    const state = rollover[y]
+                    return (
+                      <p key={y}>
+                        <strong>{n}</strong> line{n === 1 ? "" : "s"} dated in {y} ({formatLongDate(p.start)} – {formatLongDate(p.end)}){" "}
+                        {state === "posted"
+                          ? `are posted to ${y}.`
+                          : state === "posting"
+                            ? `are being posted to ${y}…`
+                            : state === "kept"
+                              ? `were not posted: ${y} already has figures entered another way. Upload them under ${y} if those figures should come from statements.`
+                              : state === "error"
+                                ? `could not be posted to ${y}; they will be tried again with the next change.`
+                                : `go to ${y} when you add the lines to the trial balance.`}
+                      </p>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             {all.length > 0 && inPeriod.length === 0 && (
               <p className="note note-alert text-sm">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
@@ -1083,6 +1246,34 @@ export function BankStatementImport({
 
 type Line = CategorisedTransaction & { bank: string }
 
+/** A statement read from its page images by AI, then checked line by line like any other. */
+async function readStatementWithAi(file: File): Promise<ParsedStatement> {
+  const { pdfPageImages } = await import("@/lib/document-reader")
+  const images = await pdfPageImages(file, 30, 1600)
+  const pages: AiStatementPage[] = []
+  for (let i = 0; i < images.length; i += 2) {
+    const response = await fetch("/api/bank-statements/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: images.slice(i, i + 2), first: i === 0 }) })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || "AI reading failed.")
+    pages.push(data.page)
+  }
+  const first = pages.find((p) => p.currency) ?? pages[0]
+  const table: unknown[][] = [[`Currency: ${first?.currency ?? "AED"}`], ["Date", "Description", "Debit", "Credit", "Balance"]]
+  const opening = pages.find((p) => p.opening !== null && p.opening !== undefined)?.opening
+  if (opening !== undefined && opening !== null) table.push(["", "Opening balance", null, null, opening])
+  for (const p of pages) for (const r of p.rows) table.push([r.date, r.description, r.debit, r.credit, r.balance])
+  const parsed = parseTableStatement(table, `${file.name} ${first?.bank ?? ""}`)
+  return { ...parsed, warnings: ["Read by AI from the page images; every line was checked against the running balance.", ...parsed.warnings] }
+}
+type FinancialRecordLite = {
+  clientId: string
+  year: number
+  revision: number
+  entryMode?: "closing" | "movement"
+  openingEquity: unknown
+  rows: { id: string; ledgerName: string; amount: number; scheduleKey: string }[]
+}
+
 /** The payer's name from a receipt's narrative, as a starting point for a new client. */
 function payerName(description: string) {
   const m = description.match(/(?:from|b\/o|by order of|remitter|ordering customer)[:\s]+([A-Z][A-Z0-9&.,' -]{2,60}?)(?:\s+(?:ref|inv|invoice|ac|a\/c|iban|\d{4,})|$)/i)
@@ -1250,7 +1441,7 @@ function FileRow({ file, onPassword, onRemove }: { file: Loaded; onPassword: (pa
       <span className="min-w-0 flex-1 truncate font-medium">{file.name}</span>
       {file.status === "reading" && (
         <span className="flex items-center gap-1.5 text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Reading
+          <Loader2 className="size-4 animate-spin" /> {file.note ?? "Reading"}
         </span>
       )}
       {file.status === "done" && file.parsed && (
