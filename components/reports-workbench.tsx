@@ -18,7 +18,7 @@ export function ReportsWorkbench() {
   const [records, setRecords] = useState<FinancialRecord[]>([])
   const [companyId, setCompanyId] = useState("")
   const [year, setYear] = useState<number | null>(null)
-  const [loaded, setLoaded] = useState<{ key: string; model: ReportModel | null; error?: string } | null>(null)
+  const [loaded, setLoaded] = useState<{ key: string; model: ReportModel | null; records?: FinancialRecord[]; error?: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null)
   const [error, setError] = useState("")
@@ -58,7 +58,7 @@ export function ReportsWorkbench() {
       .then(async (response) => {
         const data = await response.json()
         if (!response.ok) throw new Error(data.error)
-        setLoaded({ key: modelKey, model: data.model })
+        setLoaded({ key: modelKey, model: data.model, records: data.records })
       })
       .catch((cause) => {
         if (cause.name !== "AbortError") setLoaded({ key: modelKey, model: null, error: cause.message })
@@ -207,7 +207,7 @@ export function ReportsWorkbench() {
         </p>
       )}
 
-      {model && !modelLoading && <ReportView key={modelKey} model={model} records={records.filter((r) => r.clientId === companyId)} />}
+      {model && !modelLoading && <ReportView key={modelKey} model={model} records={loaded?.records ?? records.filter((r) => r.clientId === companyId)} />}
     </div>
   )
 }
