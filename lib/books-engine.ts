@@ -219,6 +219,22 @@ const words = (s: string) =>
     .split(/\s+/)
     .filter((w) => w.length > 2)
 
+/**
+ * The client or supplier a name refers to: the same name, or the same first two words once
+ * "LLC", "Trading" and the like are set aside ("PALM GROVE TRADING L L C" is Palm Grove Trading LLC).
+ */
+export function findParty<T extends { name: string }>(parties: T[], name: string): T | undefined {
+  const target = words(name.replace(/\b([a-z])\s(?=[a-z]\b)/gi, "$1"))
+  if (!target.length) return undefined
+  const exact = parties.find((p) => p.name.trim().toLowerCase() === name.trim().toLowerCase())
+  if (exact) return exact
+  const text = ` ${target.join(" ")} `
+  return parties.find((p) => {
+    const w = words(p.name)
+    return w.length > 0 && w.slice(0, 2).every((x) => text.includes(` ${x} `))
+  })
+}
+
 type Open = { kind: "invoice" | "bill"; id: string; number: string; party: string; partyWords: string[]; due: number; total: number; date: string; currency?: string; rate: number }
 const openCache = new WeakMap<Books, Open[]>()
 /** Invoices and bills not yet fully paid, worked out once per version of the books. */

@@ -25,7 +25,7 @@ import { InvoiceForm } from "@/components/invoices-workbench"
 import type { Company } from "@/lib/company"
 import { Button } from "@/components/ui/button"
 import type { Books, BooksAction } from "@/lib/books"
-import { linkedLine, matchCandidates, sameLine, type LineLink, type MatchCandidate } from "@/lib/books-engine"
+import { findParty, linkedLine, matchCandidates, sameLine, type LineLink, type MatchCandidate } from "@/lib/books-engine"
 import { fetchSeries, rateOn, round2, type RateSeries } from "@/lib/fx"
 import { chargesWithVatLine, lawVat, splitVat, type VatAnswer } from "@/lib/vat-rules"
 import {
@@ -1182,7 +1182,8 @@ export function BankStatementImport({
             prefill={(() => {
               const pattern = patternOf(invoiceFor.description)
               const known = partyRules[pattern] ?? learned.find((r) => r.pattern === pattern)?.party
-              const clientId = known && books.clients.some((c) => c.id === known) ? known : undefined
+              // The client remembered for this payer, or the one named in the line.
+              const clientId = known && books.clients.some((c) => c.id === known) ? known : findParty(books.clients, invoiceFor.description)?.id
               const gross = Math.abs(invoiceFor.amount)
               const standard = vatRegistered
               return {

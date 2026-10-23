@@ -27,7 +27,7 @@ import { Loading, NoData } from "@/components/tax-workbench"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { VAT_TREATMENTS, billTotal, round2, type Bill, type Books, type BooksAction, type VatTreatment } from "@/lib/books"
-import { billStatus } from "@/lib/books-engine"
+import { billStatus, findParty } from "@/lib/books-engine"
 import type { BillCheck, BillFields } from "@/lib/bill-rules"
 import type { Company } from "@/lib/company"
 import { pdfPageImages, readDocument, type ReadProgress } from "@/lib/document-reader"
@@ -311,7 +311,7 @@ function Tile({ label, value, alert, currency }: { label: string; value: number;
 function BillForm({ company, books, change, initial, draft, onDone }: { company: Company; books: Books; change: Change; initial: Bill | null; draft: Draft | null; onDone: (id: string) => void }) {
   const f = draft?.fields ?? {}
   const heads = costHeads(company.customHeads)
-  const knownVendor = f.supplier ? books.vendors.find((v) => v.name.toLowerCase() === f.supplier!.toLowerCase() || (f.vendorTrn && v.trn === f.vendorTrn)) : undefined
+  const knownVendor = f.supplier ? (books.vendors.find((v) => f.vendorTrn && v.trn === f.vendorTrn) ?? findParty(books.vendors, f.supplier)) : undefined
   const [vendorId, setVendorId] = useState(initial?.vendorId ?? knownVendor?.id ?? "")
   const [addingVendor, setAddingVendor] = useState(!initial && !knownVendor && (Boolean(f.supplier) || !books.vendors.length))
   const initialHead = heads.find((h) => h.name === (initial?.ledgerName ?? f.ledgerName))
@@ -413,12 +413,42 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
         )}
         {addingVendor ? (
           <div className="rounded-xl border p-4">
+            {books.vendors.length > 0 && (
+              <div className="mb-4 space-y-1.5">
+                <p className="text-[13px] font-medium">Choose a supplier already on your list</p>
+                <select
+                  aria-label="Existing supplier"
+                  className={selectClass}
+                  value=""
+                  onChange={(e) => {
+                    if (!e.target.value) return
+                    setVendorId(e.target.value)
+                    setAddingVendor(false)
+                  }}
+                >
+                  <option value="">Choose…</option>
+                  {books.vendors.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="pt-2 text-xs text-muted-foreground">or add a new supplier:</p>
+              </div>
+            )}
             <p className="mb-3 font-medium">New supplier {tag("supplier")}</p>
             <PartyForm
               kind="vendor"
               initial={{ name: f.supplier ?? "", trn: f.vendorTrn ?? "", address: f.address ?? "" }}
               onCancel={() => setAddingVendor(false)}
               onSave={async (party) => {
+                // Already on the list: use it rather than adding it twice.
+                const known = findParty(books.vendors, party.name)
+                if (known) {
+                  setVendorId(known.id)
+                  setAddingVendor(false)
+                  return
+                }
                 await change({ action: "party", kind: "vendor", party })
                 setVendorId(party.id)
                 setAddingVendor(false)
