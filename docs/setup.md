@@ -39,3 +39,9 @@ Companies are saved in Supabase for signed-in users and in the local ignored `.d
 - Their accounting is added to each year's trial balance when records are read (rows with ids starting `books-`); they are never saved with the typed figures.
 - Bill reading runs in the browser (PDF text or OCR) with document rules. With `OPENROUTER_API_KEY` or `OPENAI_API_KEY` set, an AI reading (text and, for photos, the image) fills what the rules miss. `OPENROUTER_EXTRACT_MODEL` / `OPENAI_EXTRACT_MODEL` choose the model.
 - E-invoicing quote requests are saved in Supabase (namespace `asp-requests`) or locally in `asp-requests.json`; set `FINSCOPE_ASP_WEBHOOK` (or the audit webhook) to forward them.
+
+## Currencies
+
+- Each company has a base currency (AED, USD, GBP or EUR); the books, data input and reports are kept in it.
+- Exchange rates come from the European Central Bank reference rates via `api.frankfurter.dev` (no key needed); AED and the Gulf currencies use their fixed US dollar pegs. When the service cannot be reached an approximate rate is used and marked as such. The server needs outbound HTTPS to that host.
+- Reports can be shown and downloaded in another currency (IAS 21: balance sheet at the closing rate, profit and loss at the average rate, the difference in equity). Corporate tax is always computed in AED.

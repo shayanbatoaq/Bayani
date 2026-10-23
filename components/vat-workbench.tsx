@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 
 import { CompanyPicker, Loading, NoData, useTaxData } from "@/components/tax-workbench"
+import { VatReturnBuilder } from "@/components/vat-return-builder"
 import { Button } from "@/components/ui/button"
 import { monthNames } from "@/lib/company"
 import { readDocument, type ReadProgress } from "@/lib/document-reader"
@@ -193,6 +194,16 @@ export function VatWorkbench() {
         </div>
 
         {!slot.registered && <p className="text-sm text-muted-foreground">The company was not yet VAT registered in this period.</p>}
+
+        {slot.registered && !draft && (
+          <VatReturnBuilder
+            key={slot.id}
+            company={company}
+            slot={slot}
+            periods={years.flatMap((y) => y.periods)}
+            onUse={(prepared) => setDraft({ slotId: slot.id, filing: { ...prepared, ...(filing ? { reference: filing.reference, submittedOn: filing.submittedOn } : {}) }, warnings: filing ? ["These figures replace the saved return for this period when you save."] : [] })}
+          />
+        )}
 
         {slot.registered && !filing && !draft && (
           <div className="grid gap-4 md:grid-cols-2">

@@ -17,7 +17,8 @@ export function crossRate(from: string, to: string, aedPer: Record<string, numbe
   if (!a || !b) return 0
   return round6(a / b)
 }
-export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+/** To the fils, rounding halves up reliably (3856.125 → 3856.13, which binary floating point would round down). */
+export const round2 = (n: number) => (Math.sign(n) * Math.round(Number((Math.abs(n) * 100).toPrecision(15)))) / 100 || 0
 
 /** Gulf currencies fixed to the US dollar (central bank pegs), as AED per unit. */
 export const PEGGED_AED_PER: Record<string, number> = {

@@ -84,19 +84,26 @@ export function bookEntries(books: Books): Entry[] {
   for (const invoice of books.invoices) {
     const t = documentTotals(invoice.lines)
     const r = invoice.rate ?? 1
-    entries.push({ date: invoice.date, source: `Invoice ${invoice.number}`, legs: [leg(AR, t.total * r), leg(SALES, -t.net * r), leg(VAT, -t.vat * r)] })
+    // Each leg to the fils; sales take the rounding so the entry balances.
+    const total = round2(t.total * r)
+    const vat = round2(t.vat * r)
+    entries.push({ date: invoice.date, source: `Invoice ${invoice.number}`, legs: [leg(AR, total), leg(SALES, -(total - vat)), leg(VAT, -vat)] })
   }
   for (const note of books.creditNotes) {
     const t = documentTotals(note.lines)
     const r = rateOf("invoice", note.invoiceId)
-    entries.push({ date: note.date, source: `Credit note ${note.number}`, legs: [leg(AR, -t.total * r), leg(SALES, t.net * r), leg(VAT, t.vat * r)] })
+    const total = round2(t.total * r)
+    const vat = round2(t.vat * r)
+    entries.push({ date: note.date, source: `Credit note ${note.number}`, legs: [leg(AR, -total), leg(SALES, total - vat), leg(VAT, vat)] })
   }
   for (const bill of books.bills) {
     const target = bill.treatment === "prepaid" && bill.months ? PREPAID : bill.treatment === "asset" ? ASSETS : { ledgerName: bill.ledgerName, scheduleKey: bill.scheduleKey }
     // Reverse charge: the supplier charges no VAT and the output and input VAT cancel out.
     const vat = bill.vatTreatment === "reverseCharge" ? 0 : bill.vat
     const r = bill.rate ?? 1
-    entries.push({ date: bill.date, source: `Bill ${bill.number || bill.id}`, legs: [leg(target, bill.net * r), leg(VAT, vat * r), leg(AP, -(round2(bill.net + vat) * r))] })
+    const payable = round2(round2(bill.net + vat) * r)
+    const vatBase = round2(vat * r)
+    entries.push({ date: bill.date, source: `Bill ${bill.number || bill.id}`, legs: [leg(target, payable - vatBase), leg(VAT, vatBase), leg(AP, -payable)] })
   }
   for (const p of books.payments) {
     const atDocRate = round2(p.amount * rateOf(p.kind, p.docId))

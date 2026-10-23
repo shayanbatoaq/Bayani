@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { AlertCircle, CheckCircle2, FileDown, FileSpreadsheet, Info, Loader2, Save } from "lucide-react"
 
 import { CompanyPicker, Loading, NoData, useTaxData } from "@/components/tax-workbench"
+import { useTranslatedRecords } from "@/components/use-aed-records"
 import { Button } from "@/components/ui/button"
 import { formatLongDate, type Company } from "@/lib/company"
 import {
@@ -30,7 +31,10 @@ type Tab = "commentary" | "summary" | number
 
 export function CtWorkbench() {
   const data = useTaxData()
-  const { company, companyRecords, setCompanies } = data
+  const { company, setCompanies } = data
+  // Corporate tax is computed and returned in AED: books in another currency are translated.
+  const translated = useTranslatedRecords(company, data.companyRecords, "AED")
+  const companyRecords = translated.records
   const [year, setYear] = useState<number | null>(null)
   const [edits, setEdits] = useState<{ companyId: string; store: CtAnswerStore } | null>(null)
   const [tab, setTab] = useState<Tab>("commentary")
@@ -106,14 +110,24 @@ export function CtWorkbench() {
     }
   }
 
-  if (data.loading) return <Loading />
+  if (data.loading || translated.loading) return <Loading />
   if (!company) return <NoData title="No data" text="Add your company on the Dashboard first." href="/dashboard" action="Go to Dashboard" />
+  if (translated.error) return <NoData title="Exchange rates unavailable" text={`Corporate tax is computed in AED and the rates from ${company.baseCurrency} could not be fetched. Try again shortly.`} href="/corporate-tax" action="Retry" />
   if (!companyRecords.length)
     return <NoData title="No corporate tax data" text="No trial balance has been saved yet. Save a year in Data Input." href="/data-input" action="Go to Data Input" />
   if (!ret) return null
 
   return (
     <div className="space-y-6 pb-24">
+      {translated.rates.length > 0 && (
+        <p className="note note-info text-sm">
+          Your books are kept in {company.baseCurrency}; corporate tax is computed and returned in AED, so these figures are translated: {translated.rates
+            .filter((r) => r.year === ret.year)
+            .map((r) => `balance sheet at 1 ${company.baseCurrency} = ${r.closing} AED, profit and loss at the year's average ${r.average}`)
+            .join("")}
+          .
+        </p>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-end gap-6">
           <div>

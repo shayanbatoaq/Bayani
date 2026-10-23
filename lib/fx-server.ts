@@ -28,15 +28,18 @@ function aedSeries(currency: string, start: string, end: string): Promise<AedSer
           if (FALLBACK_AED_PER[currency]) return { source: "fallback", rates: { [s]: FALLBACK_AED_PER[currency] } }
           throw new Error("Unsupported currency")
         }
-        try {
+        const attempt = async () => {
           // A week before the start, so the first days (often a weekend) have the last published rate.
-          const r = await fetch(`https://api.frankfurter.dev/v1/${back(s, 7)}..${e}?base=USD&symbols=${currency}`, { signal: AbortSignal.timeout(8000) })
+          const r = await fetch(`https://api.frankfurter.dev/v1/${back(s, 7)}..${e}?base=USD&symbols=${currency}`, { signal: AbortSignal.timeout(12000) })
           if (!r.ok) throw new Error(String(r.status))
           const d = (await r.json()) as { rates: Record<string, Record<string, number>> }
           const rates: Record<string, number> = {}
           for (const [date, row] of Object.entries(d.rates)) if (row[currency]) rates[date] = round6(AED_PER_USD / row[currency])
           if (!Object.keys(rates).length) throw new Error("no rates")
-          return { source: "ECB", rates }
+          return { source: "ECB" as const, rates }
+        }
+        try {
+          return await attempt().catch(attempt)
         } catch {
           cache.delete(key)
           if (FALLBACK_AED_PER[currency]) return { source: "fallback", rates: { [s]: FALLBACK_AED_PER[currency] } }

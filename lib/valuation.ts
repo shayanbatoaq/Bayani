@@ -85,7 +85,8 @@ export type Valuation = {
 }
 
 const round = (n: number) => Math.round(n)
-const k = (n: number) => `AED ${Math.round(n).toLocaleString("en-US")}`
+let CUR = "AED"
+const k = (n: number) => `${CUR} ${Math.round(n).toLocaleString("en-US")}`
 const pct = (n: number, d = 1) => `${(n * 100).toFixed(d)}%`
 
 /** Weighted average favouring recent years (3:2:1). */
@@ -97,6 +98,8 @@ function maintainable(values: number[]) {
 }
 
 export function valueBusiness(company: Company, records: FinancialRecord[], inputs: ValuationInputs = {}): Valuation | null {
+  // Valuations are in the company's base currency.
+  CUR = company.baseCurrency ?? "AED"
   const all = allMetrics(records)
   if (!all.length) return null
   const year = inputs.year && all.some((m) => m.year === inputs.year) ? inputs.year : all[all.length - 1].year
@@ -311,7 +314,7 @@ export function valueBusiness(company: Company, records: FinancialRecord[], inpu
     `Confidence: ${confidence.toLowerCase()} — ${confidence === "High" ? "three or more years of consistent profitable results." : confidence === "Medium" ? "profitable, but a short history; more years of data will narrow the range." : "limited history or no profits yet, so the range is wide."}`,
   ]
   const drivers = [
-    `Each AED 100,000 of extra sustainable EBITDA adds about ${k(100_000 * industry.ebitda[1])} at the sector multiple.`,
+    `Each ${CUR} 100,000 of extra sustainable EBITDA adds about ${k(100_000 * industry.ebitda[1])} at the sector multiple.`,
     `A 1% lower discount rate (for example from audited accounts, recurring contracts or less dependence on the owner) adds roughly ${k(profitable ? (dcfAt(r - 0.01, g).ev - dcfAt(r, g).ev) * 0.35 + (maintainableProfit / Math.max(0.02, r - 0.01 - g) - maintainableProfit / Math.max(0.02, r - g)) * 0.25 : 0)} to the weighted value.`,
     latest.ratios.receivableDays !== null && latest.ratios.receivableDays > 60 ? `Customers take ${Math.round(latest.ratios.receivableDays)} days to pay; collecting faster releases cash and raises value.` : "Working capital is not a major drag on value.",
   ]

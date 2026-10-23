@@ -25,7 +25,7 @@ import type { Company } from "@/lib/company"
 import { Button } from "@/components/ui/button"
 import type { Books, BooksAction } from "@/lib/books"
 import { linkedLine, matchCandidates, sameLine, type LineLink, type MatchCandidate } from "@/lib/books-engine"
-import { fetchSeries, rateOn, type RateSeries } from "@/lib/fx"
+import { fetchSeries, rateOn, round2, type RateSeries } from "@/lib/fx"
 import { chargesWithVatLine, lawVat, splitVat, type VatAnswer } from "@/lib/vat-rules"
 import {
   CATEGORIES,
@@ -355,7 +355,7 @@ export function BankStatementImport({
   }
 
   async function linkPayment(t: (typeof all)[number], c: MatchCandidate) {
-    const base = Math.round(Math.abs(t.amount * lineRate(t)) * 100) / 100
+    const base = round2(Math.abs(t.amount * lineRate(t)))
     // The payment in the document's currency: the line itself when it is in that currency, else converted at the document's rate.
     const amount = (c.currency ?? baseCurrency) === t.currency ? Math.abs(t.amount) : Math.round((base / (c.rate || 1)) * 100) / 100
     await booksChange({
@@ -465,7 +465,7 @@ export function BankStatementImport({
   const vatToAnswer = inPeriod.filter((t) => vatOf(t) === null && effective(t) !== "review")
   const vatItems = inPeriod.flatMap((t) => {
     const category = effective(t)
-    const base = Math.round(t.amount * lineRate(t) * 100) / 100
+    const base = round2(t.amount * lineRate(t))
     if (category === "vatPaid")
       return [{ id: t.id, date: t.date, description: t.description.slice(0, 300), kind: "input" as const, net: 0, vat: -base, netAed: 0, vatAed: Math.round(-toAed(base, t.date) * 100) / 100 }]
     if (vatOf(t) !== "incl") return []
@@ -500,7 +500,8 @@ export function BankStatementImport({
     let lines = 0
     for (const t of inPeriod) {
       const key = effective(t)
-      const amount = t.amount * lineRate(t)
+      // Each line to the fils in the base currency, as the invoices and bills it settles are.
+      const amount = round2(t.amount * lineRate(t))
       lines += amount
       if (key === "review" || key === "reversed") {
         pending += amount
@@ -1014,7 +1015,7 @@ export function BankStatementImport({
             onDone={async (id, invoice) => {
               const t = invoiceFor
               const gross = Math.round(Math.abs(t.amount) * 100) / 100
-              const base = Math.round(Math.abs(t.amount * lineRate(t)) * 100) / 100
+              const base = round2(Math.abs(t.amount * lineRate(t)))
               await booksChange({
                 action: "payment",
                 payment: { id: crypto.randomUUID(), kind: "invoice", docId: id, date: t.date, amount: gross, baseAmount: base, method: "bankLine", bankLine: { id: t.id, date: t.date, amount: t.amount, description: t.description.slice(0, 2000) }, note: "" },

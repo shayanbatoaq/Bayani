@@ -175,6 +175,8 @@ export const booksSchema = z.object({
   payments: z.array(paymentSchema).max(50000).default([]),
   schedules: z.array(scheduleSchema).max(2000).default([]),
   accruals: z.array(accrualSchema).max(2000).default([]),
+  /** VAT return each item belongs to when not its own period: a period id, or "none" while left out of every return. */
+  vatAssignments: z.record(z.string().max(80), z.string().max(40)).default({}),
   revision: z.number().int().nonnegative().default(0),
 })
 export type Books = z.infer<typeof booksSchema>
@@ -182,7 +184,8 @@ export const emptyBooks = (): Books => booksSchema.parse({})
 
 /* ---------------- amounts ---------------- */
 
-export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+/** To the fils, rounding halves up reliably (3856.125 → 3856.13, which binary floating point would round down). */
+export const round2 = (n: number) => (Math.sign(n) * Math.round(Number((Math.abs(n) * 100).toPrecision(15)))) / 100 || 0
 export function lineTotals(line: Pick<Line, "quantity" | "rate" | "vat">) {
   const net = round2(line.quantity * line.rate)
   const vat = line.vat === "reverseCharge" ? 0 : round2(net * vatRate(line.vat))
@@ -228,6 +231,8 @@ export const booksActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("deleteSchedule"), id }),
   z.object({ action: z.literal("accrual"), accrual: accrualSchema }),
   z.object({ action: z.literal("deleteAccrual"), id }),
+  /** period: a VAT period id, "none" to leave the item out of every return for now, null for its own period. */
+  z.object({ action: z.literal("vatAssign"), keys: z.array(z.string().max(80)).min(1).max(5000), period: z.string().max(40).nullable() }),
 ])
 export type BooksAction = z.infer<typeof booksActionSchema>
 
@@ -346,6 +351,12 @@ export function applyBooksAction(books: Books, a: BooksAction): Books {
       break
     case "deleteAccrual":
       next.accruals = next.accruals.filter((x) => x.id !== a.id)
+      break
+    case "vatAssign":
+      for (const key of a.keys) {
+        if (a.period === null) delete next.vatAssignments[key]
+        else next.vatAssignments[key] = a.period
+      }
       break
   }
   next.revision = books.revision + 1
