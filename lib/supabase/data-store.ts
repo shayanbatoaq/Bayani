@@ -12,6 +12,7 @@ export type DataNamespace =
   | "books"
   | "bill-documents"
   | "asp-requests"
+  | "activity"
 
 type DataRow = {
   record_id: string
@@ -43,7 +44,8 @@ async function context(owner: string) {
 export async function listStoredData<T extends object>(
   owner: string,
   namespace: DataNamespace,
-  limit?: number
+  limit?: number,
+  prefix?: string
 ): Promise<Array<{ id: string; value: T; revision: number; updatedAt: string }> | null> {
   const scope = await context(owner)
   if (!scope) return null
@@ -54,6 +56,7 @@ export async function listStoredData<T extends object>(
     .eq("user_id", scope.userId)
     .eq("namespace", namespace)
     .order("updated_at", { ascending: false })
+  if (prefix) query = query.like("record_id", `${prefix}%`)
   if (limit) query = query.limit(limit)
 
   const { data, error } = await query

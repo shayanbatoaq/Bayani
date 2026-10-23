@@ -14,6 +14,11 @@ const protectedPrefixes = [
   "/valuation",
   "/final-report",
   "/admin",
+  "/invoices",
+  "/bills",
+  "/adjustments",
+  "/e-invoicing",
+  "/activity",
 ]
 
 export async function proxy(request: NextRequest) {
@@ -84,5 +89,10 @@ export const config = {
     "/valuation/:path*",
     "/final-report/:path*",
     "/admin/:path*",
+    "/invoices/:path*",
+    "/bills/:path*",
+    "/adjustments/:path*",
+    "/e-invoicing/:path*",
+    "/activity/:path*",
   ],
 }

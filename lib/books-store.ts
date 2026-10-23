@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto"
 import { mkdir, open, readFile, readdir, rename, rm, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { applyBooksAction, booksSchema, emptyBooks, type Books, type BooksAction } from "./books"
+import { describeBooks } from "./activity"
+import { logActivity } from "./activity-store"
 import { FinancialError, ownerDirectory } from "./financial-store"
 import { deleteStoredData, deleteStoredDataByPrefix, listStoredData, readStoredData, saveStoredData, SupabaseDataError } from "./supabase/data-store"
 
@@ -77,6 +79,7 @@ export async function updateBooks(owner: string, companyId: string, expectedRevi
       const bill = current.bills.find((b) => b.id === action.id)
       if (bill?.attachment) await removeAttachment(owner, companyId, bill.attachment.id)
     }
+    await logBooks(owner, companyId, current, next, action)
     return next
   }
   await mkdir(folder(owner), { recursive: true, mode: 0o700 })
@@ -104,11 +107,18 @@ export async function updateBooks(owner: string, companyId: string, expectedRevi
     const temporary = `${file(owner, companyId)}.${randomUUID()}.tmp`
     await writeFile(temporary, JSON.stringify(next), { encoding: "utf8", mode: 0o600 })
     await rename(temporary, file(owner, companyId))
+    await logBooks(owner, companyId, current, next, action)
     return next
   } finally {
     await lock.close()
     await unlink(lockPath).catch(() => {})
   }
+}
+
+async function logBooks(owner: string, companyId: string, before: Books, after: Books, action: BooksAction) {
+  const { getCompany } = await import("./company-store")
+  const company = await getCompany(owner, companyId).catch(() => null)
+  await logActivity(owner, describeBooks(company ?? { id: companyId, name: "", baseCurrency: "AED" }, before, after, action))
 }
 
 export async function deleteBooks(owner: string, companyId: string) {
