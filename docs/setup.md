@@ -33,3 +33,9 @@ One company per subscription in the live product; each further company is a paid
 ## Storage
 
 Companies are saved in Supabase for signed-in users and in the local ignored `.data` directory during offline development. See `financial-data.md` for details.
+## Invoices, bills and adjustments
+
+- Books (clients, suppliers, invoices, credit notes, bills, payments, schedules) are kept per company: in Supabase (`finscope_user_data`, namespace `books`, bill documents in `bill-documents`) for signed-in users, otherwise in `books/<companyId>.json` under the local workspace folder. The namespaces are added by migration `20261023060000_add_books_namespaces.sql`.
+- Their accounting is added to each year's trial balance when records are read (rows with ids starting `books-`); they are never saved with the typed figures.
+- Bill reading runs in the browser (PDF text or OCR) with document rules. With `OPENROUTER_API_KEY` or `OPENAI_API_KEY` set, an AI reading (text and, for photos, the image) fills what the rules miss. `OPENROUTER_EXTRACT_MODEL` / `OPENAI_EXTRACT_MODEL` choose the model.
+- E-invoicing quote requests are saved in Supabase (namespace `asp-requests`) or locally in `asp-requests.json`; set `FINSCOPE_ASP_WEBHOOK` (or the audit webhook) to forward them.

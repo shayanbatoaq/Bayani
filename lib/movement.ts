@@ -35,9 +35,11 @@ export function closingRowsFor(
   const { rows, carried } = balancesFor(input, prior)
   // Depreciation always reduces the assets' book value. When the year has a depreciation
   // charge but no accumulated depreciation was entered, post the other side here.
-  const charge = round(input.rows.filter((row) => row.scheduleKey === "depreciation").reduce((sum, row) => sum + row.amount, 0))
+  // Invoices, bills and schedules (rows "books-") post both sides themselves.
+  const typed = input.rows.filter((row) => !row.id.startsWith("books-"))
+  const charge = round(typed.filter((row) => row.scheduleKey === "depreciation").reduce((sum, row) => sum + row.amount, 0))
   const auto: AutoEntry[] = []
-  if (charge !== 0 && !input.rows.some(isContra)) {
+  if (charge !== 0 && !typed.some(isContra)) {
     const at = rows.findIndex(isContra)
     const priorAccumulated =
       input.entryMode === "movement" || !prior ? 0 : prior.closingRows.filter(isContra).reduce((sum, row) => sum + row.amount, 0)

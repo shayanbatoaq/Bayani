@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 
 import { BankStatementImport, type StatementRows } from "@/components/bank-statement-import"
+import { HeadPicker, SPREADABLE, SpreadChoice, changeBooks, type HeadOption } from "@/components/books-shared"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -176,6 +177,11 @@ export function DataInputWorkbench({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [newHead, setNewHead] = useState({ name: "", scheduleKey: "" })
   const [savingHead, setSavingHead] = useState(false)
+  // Rent, insurance, licences and fixed assets: spread or depreciate instead of expensing at once.
+  const [spread, setSpread] = useState<{ head: string; amount: number; kind: "prepaid" | "asset" } | null>(null)
+  const [spreadMonths, setSpreadMonths] = useState<number | null>(12)
+  const [spreadStart, setSpreadStart] = useState(statement?.period.start ?? "")
+  const [spreadSaving, setSpreadSaving] = useState(false)
 
   const parsedAmount = parseAmount(amount)
   // Signed amounts net to zero when the figures balance.
@@ -195,6 +201,15 @@ export function DataInputWorkbench({
       custom: customHeads.filter((h) => !standard.has(h.name.toLowerCase())),
     }
   }, [customHeads])
+
+  const pickerOptions: HeadOption[] = useMemo(
+    () => [
+      ...headOptions.bs.map((h) => ({ name: h.name, scheduleKey: h.scheduleKey, group: "Balance sheet" })),
+      ...headOptions.pl.map((h) => ({ name: h.name, scheduleKey: h.scheduleKey, group: "Profit & loss" })),
+      ...headOptions.custom.map((h) => ({ name: h.name, scheduleKey: h.scheduleKey, group: "Your heads" })),
+    ],
+    [headOptions]
+  )
 
   function withSchedule(entry: { ledgerName: string; amount: number }): LedgerRow {
     return { ...createLedgerRow(entry), scheduleKey: resolveSchedule(entry.ledgerName, entry.amount, customHeads) }
@@ -248,6 +263,15 @@ export function DataInputWorkbench({
     if (headChoices && !choice) return
     const usualKey = resolveSchedule(head, 1, customHeads)
     const signed = toSigned(head, parsedAmount, usualKey, customHeads, choice || undefined)
+    if (!editingId && statement && signed > 0 && !spread) {
+      const isAsset = usualKey === "ppe" && !/allowance|accumulated|depreciation/i.test(head)
+      if (isAsset || (categoryOf(usualKey)?.statement === "P&L" && SPREADABLE.test(head))) {
+        setSpread({ head, amount: signed, kind: isAsset ? "asset" : "prepaid" })
+        setSpreadMonths(isAsset ? 60 : 12)
+        setSpreadStart(statement.period.start)
+        return
+      }
+    }
     if (editingId) {
       onRowsChange(
         rows.map((row) =>
@@ -286,6 +310,52 @@ export function DataInputWorkbench({
     setChoice(0)
   }
 
+  /** Adds the row as a prepayment or asset and creates its monthly schedule. */
+  async function finishSpread(months: number | null) {
+    if (!spread || !statement) return
+    if (months === null) {
+      const added = withSchedule({ ledgerName: spread.head, amount: spread.amount })
+      onRowsChange([...rows, added])
+      setNotice(`${spread.head} added, expensed in full.`)
+    } else {
+      setSpreadSaving(true)
+      try {
+        const asset = spread.kind === "asset"
+        const head = pickerOptions.find((o) => o.name === spread.head)
+        await changeBooks(statement.sessionKey.companyId, {
+          action: "schedule",
+          schedule: {
+            id: crypto.randomUUID(),
+            kind: asset ? "depreciation" : "prepaid",
+            label: `${spread.head} from ${spreadStart}`,
+            ledgerName: asset ? "Depreciation Expense" : spread.head,
+            scheduleKey: asset ? "depreciation" : (head?.scheduleKey ?? resolveSchedule(spread.head, 1, customHeads) ?? "otherExpenses"),
+            amount: Math.round(spread.amount * 100) / 100,
+            start: spreadStart,
+            months,
+            source: { type: "manual" },
+          },
+        })
+        const row = asset ? withSchedule({ ledgerName: spread.head, amount: spread.amount }) : { ...createLedgerRow({ ledgerName: "Prepaid Expense", amount: spread.amount }), scheduleKey: "prepayments" }
+        onRowsChange([...rows, row])
+        setNotice(
+          asset
+            ? `${spread.head} added; depreciation of AED ${formatAmount(spread.amount / months)} a month is posted from Adjustments.`
+            : `AED ${formatAmount(spread.amount)} added as Prepaid Expense; AED ${formatAmount(spread.amount / months)} a month is released to ${spread.head} (see Adjustments).`
+        )
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Could not create the schedule.")
+        setSpreadSaving(false)
+        return
+      }
+      setSpreadSaving(false)
+    }
+    setSpread(null)
+    setAmount("")
+    setHead("")
+    setChoice(0)
+  }
+
   async function saveNewHead() {
     const name = newHead.name.trim()
     if (name.length < 2 || !newHead.scheduleKey) return
@@ -310,11 +380,6 @@ export function DataInputWorkbench({
     setChoice(choicesFor(row.ledgerName) ? (Math.sign(row.amount) as Side) : 0)
     requestAnimationFrame(() => amountInput.current?.scrollIntoView({ behavior: "smooth", block: "center" }))
   }
-
-  const knownHead =
-    head && head !== NEW_HEAD
-      ? ledgerHeads.some((h) => h.name === head) || customHeads.some((h) => h.name === head)
-      : true
 
   return (
     <div className="space-y-7">
@@ -489,36 +554,21 @@ export function DataInputWorkbench({
           <form onSubmit={addManual} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto] md:items-end">
             <div className="min-w-0 space-y-2">
               <Label htmlFor="manual-head">Head</Label>
-              <select
-                id="manual-head"
-                className="h-10 w-full rounded-md border bg-white px-3 text-sm"
-                value={knownHead ? head : head}
-                onChange={(event) => {
-                  setHead(event.target.value)
+              <HeadPicker
+                label="Head"
+                value={head === NEW_HEAD ? "" : head}
+                options={pickerOptions}
+                placeholder="Type to search, e.g. capital"
+                onChange={(option) => {
+                  setHead(option.name)
                   setChoice(0)
+                  requestAnimationFrame(() => amountInput.current?.focus())
                 }}
-              >
-                <option value="">Select a head</option>
-                {!knownHead && <option value={head}>{head}</option>}
-                <optgroup label="Balance sheet">
-                  {headOptions.bs.map((h) => (
-                    <option key={h.name}>{h.name}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Profit & loss">
-                  {headOptions.pl.map((h) => (
-                    <option key={h.name}>{h.name}</option>
-                  ))}
-                </optgroup>
-                {headOptions.custom.length > 0 && (
-                  <optgroup label="Your heads">
-                    {headOptions.custom.map((h) => (
-                      <option key={h.name}>{h.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                <option value={NEW_HEAD}>+ Add new head…</option>
-              </select>
+                onCreate={(name) => {
+                  setHead(NEW_HEAD)
+                  setNewHead({ name, scheduleKey: "" })
+                }}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="manual-amount">Amount (AED)</Label>
@@ -560,6 +610,36 @@ export function DataInputWorkbench({
           </form>
           {amount && parsedAmount === null && (
             <p className="text-sm text-destructive">Enter a valid amount, such as 1,250.00.</p>
+          )}
+          {spread && (
+            <div className="space-y-3 rounded-xl border border-[var(--cobalt)]/40 bg-[var(--cobalt-wash)]/40 p-4">
+              <p className="text-sm font-medium">
+                {spread.kind === "asset"
+                  ? `${spread.head} of AED ${formatAmount(spread.amount)}: over how many months will it be depreciated?`
+                  : `${spread.head} of AED ${formatAmount(spread.amount)}: expense it in full, or spread it over the months it covers?`}
+              </p>
+              <SpreadChoice kind={spread.kind} months={spreadMonths} onChange={setSpreadMonths} amount={spread.amount} />
+              {spreadMonths && (
+                <label className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">{spread.kind === "asset" ? "In use from" : "Covers from"}</span>
+                  <Input type="date" className="h-9 w-44" value={spreadStart} onChange={(e) => setSpreadStart(e.target.value)} />
+                </label>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" disabled={spreadSaving || (spread.kind === "asset" && !spreadMonths)} onClick={() => void finishSpread(spreadMonths)}>
+                  {spreadSaving && <Loader2 className="size-4 animate-spin" />}
+                  {spreadMonths ? (spread.kind === "asset" ? "Add and depreciate" : `Add and spread over ${spreadMonths} months`) : "Add, expensed in full"}
+                </Button>
+                {spread.kind === "asset" && (
+                  <Button type="button" variant="outline" onClick={() => void finishSpread(null)}>
+                    Add without depreciation
+                  </Button>
+                )}
+                <Button type="button" variant="ghost" onClick={() => setSpread(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
           )}
           {headChoices && (
             <fieldset className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">

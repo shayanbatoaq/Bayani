@@ -1,9 +1,28 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { AlertTriangle, CheckCircle2, ChevronDown, CloudUpload, FileText, KeyRound, Landmark, Loader2, Search, ShieldCheck, Trash2, UploadCloud, Wand2 } from "lucide-react"
+import {
+  AlertTriangle,
+  BellRing,
+  CheckCircle2,
+  CloudUpload,
+  FileText,
+  KeyRound,
+  Landmark,
+  Link2,
+  Loader2,
+  Search,
+  ShieldCheck,
+  Trash2,
+  Unlink,
+  UploadCloud,
+  Wand2,
+} from "lucide-react"
 
+import { HeadPicker, Modal, SPREADABLE, SpreadChoice } from "@/components/books-shared"
 import { Button } from "@/components/ui/button"
+import type { Books, BooksAction } from "@/lib/books"
+import { linkedLine, matchCandidates, sameLine, type LineLink, type MatchCandidate } from "@/lib/books-engine"
 import {
   CATEGORIES,
   DEFAULT_RATES,
@@ -19,7 +38,7 @@ import {
 } from "@/lib/bank-categories"
 import { StatementPasswordError, readStatementFile } from "@/lib/bank-reader"
 import type { BankSession } from "@/lib/bank-session"
-import type { BankAccount, ParsedStatement } from "@/lib/bank-statement"
+import { mergeStatements, type BankAccount, type MergedAccount, type ParsedStatement } from "@/lib/bank-statement"
 import { formatLongDate } from "@/lib/company"
 import { categoryOf, scheduleLines } from "@/lib/financial-statements"
 import { ledgerHeads, type CustomHead } from "@/lib/ledger-heads"
@@ -119,6 +138,10 @@ export function BankStatementImport({
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState("")
   const [shown, setShown] = useState(60)
+  const [books, setBooks] = useState<Books | null>(null)
+  const booksRevision = useRef(0)
+  const [prompt, setPrompt] = useState<{ t: Line; category: string; kind: "prepaid" | "asset" } | null>(null)
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
   // Every head of the trial balance list (standard and the company's own) can be chosen for a line.
   const heads = useMemo(() => {
@@ -132,6 +155,33 @@ export function BankStatementImport({
     return list
   }, [customHeads])
   const catOf = (key: string) => categoryByKey.get(key) ?? heads.find((h) => h.key === key)
+
+  /* ---- invoices, bills and schedules: statement lines can settle them ---- */
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/books?companyId=${sessionKey.companyId}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data.books) return
+        booksRevision.current = data.books.revision
+        setBooks(data.books)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [sessionKey.companyId])
+  async function booksChange(action: BooksAction) {
+    const response = await fetch("/api/books", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: sessionKey.companyId, revision: booksRevision.current, change: action }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || "Could not save.")
+    booksRevision.current = data.books.revision
+    setBooks(data.books)
+  }
 
   /* ---- saved work: restored on arrival, saved as the user works ---- */
   const sessionUrl = `/api/bank-statements?companyId=${sessionKey.companyId}&year=${sessionKey.year}`
@@ -221,7 +271,12 @@ export function BankStatementImport({
     setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "reading", error: undefined } : f)))
     try {
       if (!entry.file) return
-      const parsed = await readStatementFile(entry.file, entry.password)
+      const read = await readStatementFile(entry.file, entry.password)
+      // Line ids carry the file's id so lines from different statements never share one.
+      const parsed = {
+        ...read,
+        accounts: read.accounts.map((a) => ({ ...a, key: `${entry.id}:${a.key}`, transactions: a.transactions.map((t) => ({ ...t, id: `${entry.id}:${t.id}` })) })),
+      }
       setFiles((list) => list.map((f) => (f.id === entry.id ? { ...f, status: "done", parsed } : f)))
     } catch (cause) {
       if (cause instanceof StatementPasswordError)
@@ -253,25 +308,22 @@ export function BankStatementImport({
 
   function add(list: FileList | File[]) {
     const known = new Set(files.map((f) => f.name))
-    const entries = [...list].filter((file) => !known.has(file.name)).slice(0, 24).map((file) => ({
-      id: crypto.randomUUID(),
-      file,
-      name: file.name,
-      status: "reading" as const,
-    }))
+    const entries = [...list]
+      .filter((file) => !known.has(file.name))
+      .slice(0, 24)
+      .map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        name: file.name,
+        status: "reading" as const,
+      }))
     setFiles((current) => [...current, ...entries])
     entries.forEach((entry) => void read(entry))
   }
 
-  const accounts = useMemo(
-    () =>
-      files.flatMap((f) =>
-        (f.parsed?.accounts ?? []).map((account) => ({
-          account,
-          bank: f.parsed!.bank,
-          file: f.name,
-        })),
-      ),
+  // Statements of one account, uploaded in any order, become one account in date order.
+  const accounts: MergedAccount[] = useMemo(
+    () => mergeStatements(files.flatMap((f) => (f.parsed?.accounts ?? []).map((account) => ({ account, bank: f.parsed!.bank, file: f.name })))),
     [files],
   )
 
@@ -311,10 +363,54 @@ export function BankStatementImport({
     return markReversals(list)
   }, [accounts, companyName, learned, period.start, period.end])
 
-  const effective = (t: (typeof all)[number]) => overrides[t.id] ?? sessionRules[patternOf(t.description)] ?? t.category
+  // A line that pays an invoice or bill, or is spread by a schedule, takes that category.
+  const links = useMemo(() => {
+    const map = new Map<string, LineLink>()
+    if (!books) return map
+    for (const t of all) {
+      const link = linkedLine(books, t)
+      if (link) map.set(t.id, link)
+    }
+    return map
+  }, [books, all])
+  const effective = (t: (typeof all)[number]) => links.get(t.id)?.category ?? overrides[t.id] ?? sessionRules[patternOf(t.description)] ?? t.category
   const inPeriod = all.filter((t) => t.inPeriod)
   const outside = all.length - inPeriod.length
   const reviewCount = inPeriod.filter((t) => effective(t) === "review").length
+  /** Rent, insurance and licences can be spread; fixed assets need a useful life. */
+  function choose(t: (typeof all)[number], category: string) {
+    const head = catOf(category)
+    if (t.amount < 0 && head && books) {
+      if (head.scheduleKey === "ppe" && !/allowance|accumulated/i.test(head.ledgerName)) return setPrompt({ t, category, kind: "asset" })
+      if (["rent", "insurance", "tradeLicense"].includes(category) || (category.startsWith(HEAD_PREFIX) && SPREADABLE.test(head.ledgerName)))
+        return setPrompt({ t, category, kind: "prepaid" })
+    }
+    setCategory(t, category, true)
+  }
+
+  async function linkPayment(t: (typeof all)[number], c: MatchCandidate) {
+    await booksChange({
+      action: "payment",
+      payment: {
+        id: crypto.randomUUID(),
+        kind: c.kind,
+        docId: c.id,
+        date: t.date,
+        amount: Math.round(Math.abs(t.amount * rate(t.currency)) * 100) / 100,
+        method: "bankLine",
+        bankLine: { id: t.id, date: t.date, amount: t.amount, description: t.description.slice(0, 2000) },
+        note: "",
+      },
+    })
+  }
+
+  async function unlink(t: (typeof all)[number]) {
+    if (!books) return
+    const payment = books.payments.find((p) => p.bankLine && sameLine(p.bankLine, t))
+    if (payment) return booksChange({ action: "deletePayment", id: payment.id })
+    const schedule = books.schedules.find((x) => x.source.type === "bankLine" && sameLine(x.source.line, t))
+    if (schedule && window.confirm("Remove the schedule for this line? Its monthly entries are removed too.")) return booksChange({ action: "deleteSchedule", id: schedule.id })
+  }
 
   function setCategory(t: (typeof all)[number], category: string, similar: boolean) {
     setOverrides((o) => ({ ...o, [t.id]: category }))
@@ -323,15 +419,22 @@ export function BankStatementImport({
   }
 
   /* ---- per-account period figures ---- */
-  const accountFigures = accounts.map(({ account, bank, file }) => {
+  const accountFigures = accounts.map(({ account, bank, files: names, gaps, duplicates }) => {
     const before = account.transactions.filter((t) => t.date < period.start).reduce((s, t) => s + t.amount, 0)
     const within = account.transactions.filter((t) => t.date >= period.start && t.date <= period.end)
     const opening = (account.opening ?? 0) + before
     const closing = opening + within.reduce((s, t) => s + t.amount, 0)
-    return { account, bank, file, opening, closing, count: within.length }
+    return { account, bank, file: names.length > 1 ? `${names.length} statements` : names[0], opening, closing, count: within.length, gaps, duplicates }
   })
   const currencies = [...new Set(accounts.map((a) => a.account.currency))]
   const rate = (c: string) => (c === "AED" ? 1 : (rates[c] ?? 0))
+  const matches =
+    books && (books.invoices.length || books.bills.length)
+      ? inPeriod
+          .filter((t) => !links.has(t.id) && !dismissed.has(t.id) && !["transfer", "reversed"].includes(effective(t)))
+          .map((t) => ({ t, candidates: matchCandidates(books, { ...t, amount: t.amount * rate(t.currency) }) }))
+          .filter((m) => m.candidates.length)
+      : []
   const openingAed = accountFigures.reduce((s, a) => s + a.opening * rate(a.account.currency), 0)
   const closingAed = accountFigures.reduce((s, a) => s + a.closing * rate(a.account.currency), 0)
   const coverage = coverageOf(
@@ -452,8 +555,23 @@ export function BankStatementImport({
             <h3 className="flex flex-wrap items-center gap-2 font-display text-lg font-semibold">
               Bank statements
               {saveState !== "idle" && (
-                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium", saveState === "error" ? "bg-[#fdecec] text-[#b42318]" : saveState === "saving" ? "bg-[var(--cobalt-wash)] text-[var(--cobalt)]" : "bg-[var(--lagoon-wash)] text-[#0d7d73]")}>
-                  {saveState === "saving" ? <Loader2 className="size-3 animate-spin" /> : saveState === "error" ? <AlertTriangle className="size-3" /> : <CloudUpload className="size-3" />}
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                    saveState === "error"
+                      ? "bg-[#fdecec] text-[#b42318]"
+                      : saveState === "saving"
+                        ? "bg-[var(--cobalt-wash)] text-[var(--cobalt)]"
+                        : "bg-[var(--lagoon-wash)] text-[#0d7d73]",
+                  )}
+                >
+                  {saveState === "saving" ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : saveState === "error" ? (
+                    <AlertTriangle className="size-3" />
+                  ) : (
+                    <CloudUpload className="size-3" />
+                  )}
                   {saveState === "saving" ? "Saving" : saveState === "error" ? "Not saved, will retry on next change" : "Saved"}
                 </span>
               )}
@@ -519,8 +637,8 @@ export function BankStatementImport({
               <ShieldCheck className="size-4 text-[var(--lagoon)]" /> Statement check
             </h3>
             <div className="grid gap-3 lg:grid-cols-2">
-              {accountFigures.map(({ account, bank, file, opening, closing, count }) => (
-                <AccountCard key={account.key} account={account} bank={bank} file={file} opening={opening} closing={closing} count={count} />
+              {accountFigures.map(({ account, bank, file, opening, closing, count, gaps, duplicates }) => (
+                <AccountCard key={account.key} account={account} bank={bank} file={file} opening={opening} closing={closing} count={count} gaps={gaps} duplicates={duplicates} />
               ))}
             </div>
             {coverage.missing.length > 0 && (
@@ -603,6 +721,10 @@ export function BankStatementImport({
                 </div>
               </div>
 
+              {matches.length > 0 && (
+                <MatchPanel matches={matches} onLink={(t, c) => linkPayment(t as (typeof all)[number], c)} onDismiss={(id) => setDismissed((d) => new Set([...d, id]))} />
+              )}
+
               <div className="panel space-y-3 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div role="tablist" aria-label="Show lines" className="track">
@@ -646,7 +768,9 @@ export function BankStatementImport({
                         category={effective(t)}
                         heads={heads}
                         catOf={catOf}
-                        onChange={(category) => setCategory(t, category, true)}
+                        link={links.get(t.id)}
+                        onUnlink={() => void unlink(t).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not unlink."))}
+                        onChange={(category) => choose(t, category)}
                         onAddHead={async (head) => {
                           await onAddHead(head)
                           setCategory(t, `${HEAD_PREFIX}${head.name}`, true)
@@ -702,7 +826,9 @@ export function BankStatementImport({
                 {error && <p className="note note-alert text-sm">{error}</p>}
                 <Button onClick={apply} disabled={applying || !ready || inPeriod.length === 0}>
                   {applying ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                  {appliedAt ? `Update the ${new Date(period.end).getUTCFullYear()} trial balance now` : `Add ${inPeriod.length} lines to the ${new Date(period.end).getUTCFullYear()} trial balance`}
+                  {appliedAt
+                    ? `Update the ${new Date(period.end).getUTCFullYear()} trial balance now`
+                    : `Add ${inPeriod.length} lines to the ${new Date(period.end).getUTCFullYear()} trial balance`}
                 </Button>
                 {files.length > 0 && (
                   <Button variant="ghost" onClick={() => void clearAll()}>
@@ -714,7 +840,181 @@ export function BankStatementImport({
           )}
         </>
       )}
+      {prompt && (
+        <SpreadPrompt
+          prompt={prompt}
+          amount={Math.abs(prompt.t.amount * rate(prompt.t.currency)) / (prompt.kind === "asset" && vatIncluded ? 1.05 : 1)}
+          label={catOf(prompt.category)?.ledgerName ?? ""}
+          onClose={() => setPrompt(null)}
+          onFull={() => {
+            setCategory(prompt.t as (typeof all)[number], prompt.category, true)
+            setPrompt(null)
+          }}
+          onSpread={async (months, amount) => {
+            const head = catOf(prompt.category)!
+            const t = prompt.t
+            setCategory(t as (typeof all)[number], prompt.category, false)
+            await booksChange({
+              action: "schedule",
+              schedule: {
+                id: crypto.randomUUID(),
+                kind: prompt.kind === "asset" ? "depreciation" : "prepaid",
+                label: `${t.description.slice(0, 120)} (${formatLongDate(t.date)})`,
+                ledgerName: prompt.kind === "asset" ? "Depreciation Expense" : head.ledgerName,
+                scheduleKey: prompt.kind === "asset" ? "depreciation" : head.scheduleKey,
+                amount: Math.round(amount * 100) / 100,
+                start: t.date,
+                months,
+                source: { type: "bankLine", line: { id: t.id, date: t.date, amount: t.amount, description: t.description.slice(0, 2000) } },
+              },
+            })
+            setPrompt(null)
+          }}
+        />
+      )}
     </section>
+  )
+}
+
+type Line = CategorisedTransaction & { bank: string }
+
+function MatchPanel({
+  matches,
+  onLink,
+  onDismiss,
+}: {
+  matches: { t: Line; candidates: MatchCandidate[] }[]
+  onLink: (t: Line, c: MatchCandidate) => Promise<void>
+  onDismiss: (id: string) => void
+}) {
+  const [busy, setBusy] = useState("")
+  const [error, setError] = useState("")
+  const [choice, setChoice] = useState<Record<string, string>>({})
+  return (
+    <div className="panel space-y-3 border-[var(--cobalt)]/40 p-5 ring-1 ring-[var(--cobalt)]/30">
+      <h3 className="flex items-center gap-2 font-display font-semibold">
+        <BellRing className="size-4 text-[var(--cobalt)]" /> Match found: {matches.length} line{matches.length === 1 ? "" : "s"} may settle your invoices or bills
+      </h3>
+      <p className="text-sm text-muted-foreground">
+        Linking marks the invoice or bill paid and posts the line against the receivable or payable instead of sales or expenses, so nothing is counted twice.
+      </p>
+      {error && <p className="note note-alert text-sm">{error}</p>}
+      <ul className="divide-y rounded-2xl border">
+        {matches.slice(0, 30).map(({ t, candidates }) => {
+          const picked = candidates.find((c) => c.id === choice[t.id]) ?? candidates[0]
+          return (
+            <li key={t.id} className="grid gap-2 px-3 py-2.5 text-sm lg:grid-cols-[1fr_auto_1.2fr_auto] lg:items-center">
+              <span className="min-w-0">
+                <span className="line-clamp-1 break-words">{t.description}</span>
+                <span className="text-[11px] text-muted-foreground">{formatLongDate(t.date)}</span>
+              </span>
+              <span className={cn("font-semibold tabular-nums", t.amount < 0 ? "text-[#b42318]" : "text-[#0d7d73]")}>{money(t.amount)}</span>
+              <select
+                aria-label="Invoice or bill"
+                className="h-9 min-w-0 rounded-lg border bg-white px-2 text-sm"
+                value={picked.id}
+                onChange={(e) => setChoice((c) => ({ ...c, [t.id]: e.target.value }))}
+              >
+                {candidates.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.kind === "invoice" ? "Invoice" : "Bill"} {c.number} · {c.party} · due {money(c.due)}
+                    {c.reason === "both" ? " (amount and name)" : c.reason === "amount" ? " (same amount)" : " (name)"}
+                  </option>
+                ))}
+              </select>
+              <span className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  disabled={Boolean(busy)}
+                  onClick={async () => {
+                    setBusy(t.id)
+                    setError("")
+                    try {
+                      await onLink(t, picked)
+                    } catch (cause) {
+                      setError(cause instanceof Error ? cause.message : "Could not link.")
+                    } finally {
+                      setBusy("")
+                    }
+                  }}
+                >
+                  {busy === t.id ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />} Link
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => onDismiss(t.id)}>
+                  Not this
+                </Button>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function SpreadPrompt({
+  prompt,
+  amount,
+  label,
+  onClose,
+  onFull,
+  onSpread,
+}: {
+  prompt: { t: Line; kind: "prepaid" | "asset" }
+  amount: number
+  label: string
+  onClose: () => void
+  onFull: () => void
+  onSpread: (months: number, amount: number) => Promise<void>
+}) {
+  const [months, setMonths] = useState<number | null>(prompt.kind === "asset" ? 60 : 12)
+  const [value, setValue] = useState(String(Math.round(amount * 100) / 100))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  return (
+    <Modal title={prompt.kind === "asset" ? "Depreciate this asset" : `Expense in full or spread?`} onClose={onClose}>
+      <div className="space-y-4 text-sm">
+        <p className="rounded-xl border bg-muted/30 p-3">
+          {formatLongDate(prompt.t.date)} · {prompt.t.description} · <strong>{money(prompt.t.amount)}</strong>
+        </p>
+        <p>
+          {prompt.kind === "asset"
+            ? "A fixed asset is not an expense when bought: it is depreciated over its useful life. Choose the life, and Bayani posts the depreciation every month."
+            : `${label} is usually paid for a period ahead. Spread it over the months it covers, or expense it in full now?`}
+        </p>
+        <SpreadChoice kind={prompt.kind} months={months} onChange={setMonths} amount={Number(value) || 0} />
+        {months && (
+          <label className="block">
+            <span className="text-xs text-muted-foreground">{prompt.kind === "asset" ? "Cost to depreciate (AED, before VAT)" : "Amount to spread (AED)"}</span>
+            <input inputMode="decimal" className="mt-1 h-9 w-40 rounded-lg border px-2" value={value} onChange={(e) => setValue(e.target.value)} />
+          </label>
+        )}
+        {error && <p className="text-[#b42318]">{error}</p>}
+        <div className="flex flex-wrap justify-end gap-2">
+          {prompt.kind === "prepaid" && (
+            <Button variant="outline" onClick={onFull}>
+              Expense in full
+            </Button>
+          )}
+          <Button
+            disabled={!months || saving}
+            onClick={async () => {
+              setSaving(true)
+              setError("")
+              try {
+                await onSpread(months!, Number(value) || 0)
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : "Could not save.")
+                setSaving(false)
+              }
+            }}
+          >
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {prompt.kind === "asset" ? "Save and depreciate" : months ? `Spread over ${months} months` : "Spread"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -778,9 +1078,27 @@ function FileRow({ file, onPassword, onRemove }: { file: Loaded; onPassword: (pa
   )
 }
 
-function AccountCard({ account, bank, file, opening, closing, count }: { account: BankAccount; bank: string; file: string; opening: number; closing: number; count: number }) {
+function AccountCard({
+  account,
+  bank,
+  file,
+  opening,
+  closing,
+  count,
+  gaps,
+  duplicates,
+}: {
+  account: BankAccount
+  bank: string
+  file: string
+  opening: number
+  closing: number
+  count: number
+  gaps: MergedAccount["gaps"]
+  duplicates: number
+}) {
   const statedOk = account.statedClosing === null || Math.abs(account.statedClosing - (account.closing ?? 0)) < 0.02
-  const ok = account.mismatches === 0 && statedOk
+  const ok = account.mismatches === 0 && statedOk && gaps.length === 0
   return (
     <div className={cn("min-w-0 rounded-2xl border p-4", ok ? "bg-[var(--lagoon-wash)]/50" : "bg-[#fdecec]/60")}>
       <div className="flex items-start gap-3">
@@ -817,13 +1135,24 @@ function AccountCard({ account, bank, file, opening, closing, count }: { account
           ? `Every line agrees with the running balance${account.statedClosing !== null ? " and the closing balance printed on the statement" : ""}.`
           : account.mismatches
             ? `${account.mismatches} line${account.mismatches === 1 ? "" : "s"} did not agree with the running balance. Check them in All lines (marked).`
-            : `The closing balance on the statement (${money(account.statedClosing ?? 0)}) differs from the lines read (${money(account.closing ?? 0)}).`}
+            : gaps.length
+              ? `Statements are in date order, but ${gaps.length === 1 ? "one statement does" : `${gaps.length} statements do`} not open where the previous one closed: a statement is probably missing.`
+              : `The closing balance on the statement (${money(account.statedClosing ?? 0)}) differs from the lines read (${money(account.closing ?? 0)}).`}
       </p>
+      {gaps.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-[#7a1c14]">
+          {gaps.map((g) => (
+            <li key={`${g.after}-${g.before}`}>
+              Closed {money(g.closed)} on {formatLongDate(g.after)}, next opens {money(g.opened)} on {formatLongDate(g.before)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {duplicates > 0 && <p className="mt-2 text-xs text-muted-foreground">{duplicates} lines appeared in two overlapping statements and were counted once.</p>}
     </div>
   )
 }
 
-const NEW_HEAD = "__new_head__"
 const REPORT_UNDER = scheduleLines.filter((line) => !["bank", "cash"].includes(line.key))
 
 function TransactionRow({
@@ -833,6 +1162,8 @@ function TransactionRow({
   catOf,
   onChange,
   onAddHead,
+  link,
+  onUnlink,
 }: {
   t: CategorisedTransaction & { bank: string }
   category: string
@@ -840,6 +1171,8 @@ function TransactionRow({
   catOf: (key: string) => Category | undefined
   onChange: (category: string) => void
   onAddHead: (head: CustomHead) => Promise<void>
+  link?: LineLink
+  onUnlink?: () => void
 }) {
   const current = catOf(category)
   const suggested = catOf(t.suggested)
@@ -848,7 +1181,6 @@ function TransactionRow({
   const [under, setUnder] = useState(t.amount >= 0 ? "otherIncome" : "otherExpenses")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const known = new Set(CATEGORIES.map((c) => c.key))
   return (
     <li className="grid gap-2 px-3 py-2.5 text-sm sm:grid-cols-[6.5rem_1fr_8rem_14rem] sm:items-center">
       <span className="text-xs text-muted-foreground tabular-nums">{formatLongDate(t.date)}</span>
@@ -860,40 +1192,35 @@ function TransactionRow({
         </span>
       </span>
       <span className={cn("font-semibold tabular-nums sm:text-right", t.amount < 0 ? "text-[#b42318]" : "text-[#0d7d73]")}>{money(t.amount)}</span>
-      <span className="relative">
-        <select
-          aria-label={`Category for ${t.description}`}
-          className={cn("h-9 w-full appearance-none rounded-lg border bg-white pl-2.5 pr-8 text-sm", category === "review" && "border-[var(--saffron)] bg-[var(--saffron-wash)]")}
-          value={category}
-          onChange={(e) => {
-            if (e.target.value === NEW_HEAD) {
-              setAdding(true)
-              return
-            }
-            onChange(e.target.value)
+      {link ? (
+        <span className="flex items-center justify-between gap-2 rounded-lg border border-[var(--lagoon)]/40 bg-[var(--lagoon-wash)] px-2.5 py-1.5 text-xs text-[#0b4d47]">
+          <a href={link.href} className="min-w-0 truncate font-medium hover:underline">
+            <Link2 className="mr-1 inline size-3.5" />
+            {link.label}
+          </a>
+          <button type="button" aria-label="Unlink" title="Unlink" className="rounded p-0.5 hover:bg-white/60" onClick={onUnlink}>
+            <Unlink className="size-3.5" />
+          </button>
+        </span>
+      ) : (
+        <HeadPicker
+          label={`Category for ${t.description}`}
+          className={cn(category === "review" && "[&>button]:border-[var(--saffron)] [&>button]:bg-[var(--saffron-wash)]")}
+          value={category === "review" ? "" : (current?.label ?? category.replace(HEAD_PREFIX, ""))}
+          placeholder="Search heads, e.g. rent or capital"
+          emptyLabel={suggested ? `Under review · suggested: ${suggested.label}` : "Under review"}
+          options={[
+            ...(category === "review" && suggested ? [{ name: suggested.label, scheduleKey: suggested.scheduleKey, group: "Suggested", key: t.suggested }] : []),
+            ...CATEGORIES.filter((c) => !["receivable", "payable", "prepaid"].includes(c.key)).map((c) => ({ name: c.label, scheduleKey: c.scheduleKey, group: `Categories · ${c.group}`, key: c.key })),
+            ...heads.map((h) => ({ name: h.label, scheduleKey: h.scheduleKey, group: "Trial balance heads", key: h.key })),
+          ]}
+          onChange={(option) => onChange(option.key ?? option.name)}
+          onCreate={(typed) => {
+            setName(typed)
+            setAdding(true)
           }}
-        >
-          {category === "review" && suggested && <option value={t.suggested}>Suggested: {suggested.label}</option>}
-          <optgroup label="Categories">
-            {CATEGORIES.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Trial balance heads">
-            {heads.map((h) => (
-              <option key={h.key} value={h.key}>
-                {h.label}
-              </option>
-            ))}
-            {!known.has(category) && !heads.some((h) => h.key === category) && <option value={category}>{current?.label ?? category.replace(HEAD_PREFIX, "")}</option>}
-          </optgroup>
-          <option value={NEW_HEAD}>+ Add a new head…</option>
-        </select>
-        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        {current && category !== "review" && <span className="sr-only">{current.hint}</span>}
-      </span>
+        />
+      )}
       {adding && (
         <form
           className="flex flex-wrap items-end gap-2 rounded-xl border bg-secondary/40 p-3 sm:col-span-4"
@@ -919,7 +1246,14 @@ function TransactionRow({
         >
           <label className="min-w-48 flex-1 text-xs">
             <span className="text-muted-foreground">New head</span>
-            <input autoFocus className="mt-1 h-9 w-full rounded-lg border bg-white px-2.5 text-sm" maxLength={120} placeholder="e.g. Subcontractor charges" value={name} onChange={(e) => setName(e.target.value)} />
+            <input
+              autoFocus
+              className="mt-1 h-9 w-full rounded-lg border bg-white px-2.5 text-sm"
+              maxLength={120}
+              placeholder="e.g. Subcontractor charges"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </label>
           <label className="min-w-48 flex-1 text-xs">
             <span className="text-muted-foreground">Reported under</span>
@@ -938,7 +1272,9 @@ function TransactionRow({
           <Button type="button" size="sm" variant="outline" onClick={() => setAdding(false)}>
             Cancel
           </Button>
-          <p className="basis-full text-[11px] text-muted-foreground">The head is added to your trial balance list and used for this line and every line from the same payer or payee.</p>
+          <p className="basis-full text-[11px] text-muted-foreground">
+            The head is added to your trial balance list and used for this line and every line from the same payer or payee.
+          </p>
           {error && <p className="basis-full text-xs text-[#b42318]">{error}</p>}
         </form>
       )}

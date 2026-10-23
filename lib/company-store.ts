@@ -191,6 +191,8 @@ export async function deleteCompany(owner: string, id: string) {
       deleteStoredDataByPrefix(owner, "financial-records", `${id}-`),
       deleteStoredDataByPrefix(owner, "bank-sessions", `${id}-`),
       deleteStoredData(owner, "company-logos", id),
+      deleteStoredData(owner, "books", id),
+      deleteStoredDataByPrefix(owner, "bill-documents", `${id}:`),
     ])
     return existing
   }
@@ -213,6 +215,8 @@ export async function deleteCompany(owner: string, id: string) {
     saved = await readdir(statements)
   } catch {}
   await Promise.all(saved.filter((file) => file.startsWith(`${id}-`)).map((file) => rm(path.join(statements, file), { force: true })))
+  const { deleteBooks } = await import("./books-store")
+  await deleteBooks(owner, id)
   return existing
 }
 

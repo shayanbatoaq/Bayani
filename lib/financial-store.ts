@@ -90,7 +90,7 @@ export async function listFinancialRecords(
       const validated = financialInputSchema.parse(value)
       return { ...value, ...validated, revision, updatedAt } as FinancialRecord
     })
-    return resolveRecords(records).sort(
+    return resolveRecords(await withBooks(owner, records)).sort(
       (a, b) => b.year - a.year || a.clientName.localeCompare(b.clientName)
     )
   }
@@ -114,9 +114,55 @@ export async function listFinancialRecords(
         return { ...parsed, ...validated, revision: parsed.revision ?? revision }
       })
   )
-  return resolveRecords(records).sort(
+  return resolveRecords(await withBooks(owner, records)).sort(
     (a, b) => b.year - a.year || a.clientName.localeCompare(b.clientName)
   )
+}
+
+/**
+ * Adds the trial balance rows of invoices, bills and adjustments to each year, and a year
+ * of its own wherever the books have entries but no figures were saved.
+ */
+async function withBooks(owner: string, records: FinancialRecord[]): Promise<FinancialRecord[]> {
+  const [{ readAllBooks }, { listCompanies }, { bookRows, bookYears }, { financialPeriod }] = await Promise.all([
+    import("./books-store"),
+    import("./company-store"),
+    import("./books-engine"),
+    import("./company"),
+  ])
+  const all = await readAllBooks(owner)
+  if (!all.size) return records
+  const companies = new Map((await listCompanies(owner)).map((c) => [c.id, c]))
+  const out = records.map((r) => ({ ...r, rows: r.rows.filter((row) => !row.id.startsWith("books-")) }))
+  for (const [companyId, books] of all) {
+    const company = companies.get(companyId)
+    if (!company) continue
+    const periodOf = (year: number) => financialPeriod(year, company.ct.yearEndMonth ?? 12)
+    for (const year of bookYears(books, periodOf))
+      if (!out.some((r) => r.clientId === companyId && r.year === year))
+        out.push({
+          clientId: companyId,
+          clientName: company.name,
+          year,
+          currency: "AED",
+          openingEquity: null,
+          rows: [],
+          // Built on the year before when there is one, so its balances carry forward.
+          entryMode: out.some((r) => r.clientId === companyId && r.year === year - 1) ? "movement" : "closing",
+          id: `${companyId}-${year}`,
+          revision: 0,
+          updatedAt: "",
+          statements: undefined as unknown as FinancialRecord["statements"],
+        })
+    const years = new Set(out.filter((r) => r.clientId === companyId).map((r) => r.year))
+    for (const record of out) {
+      if (record.clientId !== companyId) continue
+      // A movement year built on a saved year before it takes only its own entries.
+      const flows = record.entryMode === "movement" && years.has(record.year - 1)
+      record.rows = [...record.rows, ...bookRows(books, periodOf(record.year), flows)]
+    }
+  }
+  return out
 }
 
 export async function saveFinancialRecord(
@@ -132,6 +178,7 @@ export async function saveFinancialRecord(
         "This client year has a newer saved version. Reopen it before saving your changes.",
         409
       )
+    input = { ...input, rows: input.rows.filter((row) => !row.id.startsWith("books-")) }
     const record: FinancialRecord = {
       ...input,
       id,
@@ -179,6 +226,7 @@ export async function saveFinancialRecord(
         "This client year has a newer saved version. Reopen it before saving your changes.",
         409
       )
+    input = { ...input, rows: input.rows.filter((row) => !row.id.startsWith("books-")) }
     const record: FinancialRecord = {
       ...input,
       id,

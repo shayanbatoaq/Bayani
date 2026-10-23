@@ -2,19 +2,24 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { ClipboardCheck, FileText, Gem, Landmark, LayoutDashboard, LogOut, Receipt, Upload } from "lucide-react"
+import { useState } from "react"
+import { ClipboardCheck, FilePen, FileText, Gem, Landmark, LayoutDashboard, LogOut, MoreHorizontal, Network, Receipt, ReceiptText, SlidersHorizontal, Upload, X } from "lucide-react"
 
 import { BrandLogo } from "@/components/brand-logo"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard },
-  { href: "/data-input", label: "Data Input", short: "Data", icon: Upload },
+  { href: "/dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard, dock: true },
+  { href: "/data-input", label: "Data Input", short: "Data", icon: Upload, dock: true },
+  { href: "/invoices", label: "Invoices", icon: ReceiptText, dock: true },
+  { href: "/bills", label: "Bills", icon: FilePen, dock: true },
+  { href: "/adjustments", label: "Adjustments", icon: SlidersHorizontal },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/vat", label: "VAT", icon: Receipt },
   { href: "/corporate-tax", label: "Corporate Tax", short: "CT", icon: Landmark },
   { href: "/audit", label: "Audit", icon: ClipboardCheck },
   { href: "/valuation", label: "Valuation", short: "Value", icon: Gem },
+  { href: "/e-invoicing", label: "E-Invoicing", icon: Network },
 ]
 
 function useActive() {
@@ -51,6 +56,8 @@ function SignOutButton({ compact }: { compact?: boolean }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const isActive = useActive()
+  const [more, setMore] = useState(false)
+  const extra = navItems.filter((item) => !item.dock)
   return (
     <div className="min-h-screen">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[17rem] flex-col bg-[var(--ink)] lg:flex">
@@ -96,13 +103,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label="Main"
         className="fixed inset-x-3 bottom-3 z-30 flex gap-1 rounded-[20px] bg-[var(--ink)]/95 p-1.5 shadow-[0_18px_40px_-12px_rgba(13,27,46,.7)] ring-1 ring-white/10 backdrop-blur lg:hidden"
       >
-        {navItems.map(({ href, label, short, icon: Icon }) => (
-          <Link key={href} href={href} className="dock-link" aria-current={isActive(href) ? "page" : undefined}>
-            <Icon className="size-5" />
-            {short ?? label}
-          </Link>
-        ))}
+        {navItems
+          .filter((item) => item.dock)
+          .map(({ href, label, short, icon: Icon }) => (
+            <Link key={href} href={href} className="dock-link" aria-current={isActive(href) ? "page" : undefined}>
+              <Icon className="size-5" />
+              {short ?? label}
+            </Link>
+          ))}
+        <button type="button" className="dock-link" aria-expanded={more} aria-current={extra.some((item) => isActive(item.href)) ? "page" : undefined} onClick={() => setMore((m) => !m)}>
+          {more ? <X className="size-5" /> : <MoreHorizontal className="size-5" />}
+          More
+        </button>
       </nav>
+      {more && (
+        <div className="fixed inset-0 z-20 bg-[rgba(13,27,46,.35)] lg:hidden" onClick={() => setMore(false)}>
+          <nav aria-label="More" className="absolute inset-x-3 bottom-[5.25rem] grid grid-cols-3 gap-2 rounded-[20px] bg-[var(--ink)] p-3 shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+            {extra.map(({ href, label, icon: Icon }) => (
+              <Link key={href} href={href} className="dock-link py-3" onClick={() => setMore(false)} aria-current={isActive(href) ? "page" : undefined}>
+                <Icon className="size-5" />
+                {label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      )}
     </div>
   )
 }

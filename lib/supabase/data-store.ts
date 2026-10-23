@@ -9,6 +9,9 @@ export type DataNamespace =
   | "audit-requests"
   | "plan"
   | "company-logos"
+  | "books"
+  | "bill-documents"
+  | "asp-requests"
 
 type DataRow = {
   record_id: string

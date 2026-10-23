@@ -26,6 +26,7 @@ export const CATEGORIES: Category[] = [
   { key: "rent", label: "Rent", ledgerName: "Rent Expense", scheduleKey: "rent", group: "Expenses", hint: "Office, shop or warehouse rent, Ejari" },
   { key: "utilities", label: "Utilities & telecom", ledgerName: "Utilities", scheduleKey: "utilities", group: "Expenses", hint: "DEWA, SEWA, ADDC, Empower, du, e&" },
   { key: "govFees", label: "Licence, visa & government fees", ledgerName: "Licence & Visa Fees", scheduleKey: "otherExpenses", group: "Expenses", hint: "Trade licence, free zone, immigration, MOHRE, Amer, Tasheel" },
+  { key: "tradeLicense", label: "Trade licence", ledgerName: "Trade License Expense", scheduleKey: "otherExpenses", group: "Expenses", hint: "Trade licence issue and renewal, free zone licence fees" },
   { key: "professional", label: "Professional fees", ledgerName: "Legal & Professional", scheduleKey: "legal", group: "Expenses", hint: "Audit, accounting, legal, consultancy, PRO" },
   { key: "marketing", label: "Marketing", ledgerName: "Marketing Expense", scheduleKey: "marketing", group: "Expenses", hint: "Google, Meta, TikTok, LinkedIn, printing of promotions" },
   { key: "software", label: "Software & subscriptions", ledgerName: "Fee & Subscription", scheduleKey: "subscriptions", group: "Expenses", hint: "Microsoft, Google Workspace, Zoho, Adobe, hosting" },
@@ -39,6 +40,9 @@ export const CATEGORIES: Category[] = [
   { key: "otherExpense", label: "Other expenses", ledgerName: "Other Expense", scheduleKey: "otherExpenses", group: "Expenses", hint: "Anything that fits no other head" },
   { key: "tax", label: "VAT / corporate tax paid", ledgerName: "VAT Control", scheduleKey: "taxPayable", group: "Balance sheet", hint: "Payments to the Federal Tax Authority (not an expense)" },
   { key: "assets", label: "Equipment & fixed assets", ledgerName: "Fixed Assets", scheduleKey: "ppe", group: "Balance sheet", hint: "Computers, furniture, vehicles, fit-out bought for long-term use" },
+  { key: "receivable", label: "Customer invoice paid", ledgerName: "Accounts Receivable", scheduleKey: "receivables", group: "Balance sheet", hint: "Receipts linked to a Bayani invoice" },
+  { key: "payable", label: "Supplier bill paid", ledgerName: "Accounts Payable", scheduleKey: "payables", group: "Balance sheet", hint: "Payments linked to a Bayani bill" },
+  { key: "prepaid", label: "Prepaid (spread over months)", ledgerName: "Prepaid Expense", scheduleKey: "prepayments", group: "Balance sheet", hint: "Licence, rent or insurance paid in advance and released monthly" },
   { key: "deposits", label: "Deposits & advances paid", ledgerName: "Prepaid Expense", scheduleKey: "prepayments", group: "Balance sheet", hint: "Security deposits, advances to suppliers, prepaid rent" },
   { key: "capital", label: "Capital introduced", ledgerName: "Share Capital", scheduleKey: "capital", group: "Balance sheet", hint: "Owner paying in share capital" },
   { key: "owner", label: "Owner's account (in / drawings)", ledgerName: "Current Account", scheduleKey: "shareholder", group: "Balance sheet", hint: "Owner putting money in or taking money out" },
@@ -90,8 +94,9 @@ const RULES: Rule[] = [
   { test: /\b(rent|ejari|lease|landlord|tenancy)\b/i, category: "rent", direction: "out" },
   // Utilities and telecom
   { test: /\b(dewa|sewa|addc|aadc|fewa|etihad water|empower|tabreed|lootah gas|emirates gas|etisalat|e&|du (quick ?pay|bill|mobile|postpaid|prepaid|recharge|payment|home)|du\.ae|emirates integrated telecom|virgin mobile)\b/i, category: "utilities", direction: "out" },
-  // Government
-  { test: /\b(ded|dubai economy|department of economy|tasheel|amer|tawjeeh|mohre|ministry of human|ministry of|gdrfa|federal authority for identity|emirates id|visa (fee|fees|charges|application|renewal|stamping|change)|entry permit|residence permit|immigration|jafza|jebel ali free zone|dmcc authority|dafza|rakez|ifza|meydan free zone|shams free zone|spc free zone|ajman free zone|creative city|trade licen[cs]e|licen[cs]e renewal|chamber of commerce|dubai municipality|traffic fine|dubai police)\b/i, category: "govFees", direction: "out" },
+  // Government (the licence itself has its own head, so it can be spread over the licence year)
+  { test: /\b(trade licen[cs]e|licen[cs]e (renewal|fee|fees)|business licen[cs]e)\b/i, category: "tradeLicense", direction: "out" },
+  { test: /\b(ded|dubai economy|department of economy|tasheel|amer|tawjeeh|mohre|ministry of human|ministry of|gdrfa|federal authority for identity|emirates id|visa (fee|fees|charges|application|renewal|stamping|change)|entry permit|residence permit|immigration|jafza|jebel ali free zone|dmcc authority|dafza|rakez|ifza|meydan free zone|shams free zone|spc free zone|ajman free zone|creative city|chamber of commerce|dubai municipality|traffic fine|dubai police)\b/i, category: "govFees", direction: "out" },
   // Professional
   { test: /\b(audit|auditing|accounting|bookkeeping|legal|advocates?|lawyer|consultan(t|cy)|notary|pro services|tax agent)\b/i, category: "professional", direction: "out" },
   // Marketing
