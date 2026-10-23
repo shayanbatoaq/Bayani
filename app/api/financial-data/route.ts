@@ -39,6 +39,11 @@ export async function POST(request: Request) {
     } catch {
       throw new FinancialError("Invalid financial data.")
     }
+    // Rows from invoices, bills and adjustments are rebuilt from the books, never saved here.
+    if (body && typeof body === "object" && Array.isArray((body as { rows?: unknown }).rows))
+      (body as { rows: { id?: unknown }[] }).rows = (body as { rows: { id?: unknown }[] }).rows.filter(
+        (row) => !(typeof row?.id === "string" && row.id.startsWith("books-"))
+      )
     const parsed = financialInputSchema.safeParse(body)
     if (!parsed.success)
       return Response.json(

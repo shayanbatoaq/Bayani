@@ -166,6 +166,8 @@ export async function deleteCompany(owner: string, id: string) {
     saved = await readdir(statements)
   } catch {}
   await Promise.all(saved.filter((file) => file.startsWith(`${id}-`)).map((file) => rm(path.join(statements, file), { force: true })))
+  const { deleteBooks } = await import("./books-store")
+  await deleteBooks(owner, id)
   return existing
 }
 

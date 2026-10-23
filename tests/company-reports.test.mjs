@@ -71,7 +71,7 @@ const y2025 = record(
 )
 
 test("standard TB heads map to a report line and category", () => {
-  assert.equal(ledgerHeads.length, 41)
+  assert.equal(ledgerHeads.length, 43)
   for (const head of ledgerHeads)
     assert.notEqual(resolveSchedule(head.name, head.name === "VAT Control" ? -1 : 1), "", head.name)
   assert.equal(resolveSchedule("Cash in Hand", 10), "cash")

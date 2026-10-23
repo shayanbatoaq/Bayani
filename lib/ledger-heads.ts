@@ -38,6 +38,7 @@ export const ledgerHeads: LedgerHead[] = [
   { name: "Exchange Gain / (Loss)", statement: "P&L", mainHead: "Other Income / Expense", scheduleKey: "exchange" },
   { name: "Discount Given", statement: "P&L", mainHead: "Selling Expenses", scheduleKey: "otherExpenses" },
   { name: "Postage & Courier Expense", statement: "P&L", mainHead: "Administrative Expenses", scheduleKey: "office" },
+  { name: "Trade License Expense", statement: "P&L", mainHead: "Administrative Expenses", scheduleKey: "otherExpenses" },
   { name: "Depreciation Expense", statement: "P&L", mainHead: "Administrative Expenses", scheduleKey: "depreciation" },
   { name: "Other Expense", statement: "P&L", mainHead: "Other Expenses", scheduleKey: "otherExpenses" },
   { name: "Other Income", statement: "P&L", mainHead: "Other Income", scheduleKey: "otherIncome" },
@@ -50,6 +51,7 @@ export const ledgerHeads: LedgerHead[] = [
   { name: "Allowance for Bad Debt", statement: "BS", mainHead: "Assets (Contra Asset)", scheduleKey: "receivables" },
   { name: "Allowance for Depreciation", statement: "BS", mainHead: "Assets (Contra Asset)", scheduleKey: "ppe" },
   { name: "Accounts Payable", statement: "BS", mainHead: "Liabilities", scheduleKey: "payables" },
+  { name: "Accrued Expenses", statement: "BS", mainHead: "Liabilities", scheduleKey: "accruals" },
   {
     name: "VAT Control",
     statement: "BS",
