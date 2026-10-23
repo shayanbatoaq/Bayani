@@ -35,6 +35,7 @@ export function ReportView({ model, records }: { model: ReportModel; records: Fi
   const [tab, setTab] = useState<Tab>("snap")
   return (
     <div className="space-y-5">
+      {model.currencyNote && <p className="rounded-lg border-l-4 border-sky-500 bg-sky-50 px-4 py-2 text-sm text-sky-900">{model.currencyNote}</p>}
       <div role="tablist" aria-label="Report sections" className="track">
         {TABS.map((item) => (
           <button key={item.key} role="tab" type="button" aria-selected={tab === item.key} onClick={() => setTab(item.key)} className="track-item">

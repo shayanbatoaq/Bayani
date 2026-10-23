@@ -52,5 +52,5 @@ export async function reportFromRequest(request: Request, { forDownload = false 
   // PDFs embed the logo; the on-screen view loads it by URL.
   model.logo = forDownload ? await logoDataUri(owner, company) : company.logo ? `/api/companies/logo?id=${company.id}&v=${encodeURIComponent(company.logo.updatedAt)}` : null
   const filename = `${company.name.replace(/[^A-Za-z0-9]+/g, "-")}-Financial-Statements-${year}${target !== base ? `-${target}` : ""}`
-  return { model, filename, query }
+  return { model, filename, query, records }
 }
