@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState } from "react"
-import { ClipboardCheck, FilePen, FileText, Gem, Landmark, LayoutDashboard, LogOut, MoreHorizontal, Network, Receipt, ReceiptText, SlidersHorizontal, Upload, X } from "lucide-react"
+import { ClipboardCheck, FilePen, FileText, Gem, History, Landmark, LayoutDashboard, LogOut, MoreHorizontal, Network, Receipt, ReceiptText, SlidersHorizontal, Upload, X } from "lucide-react"
 
 import { BrandLogo } from "@/components/brand-logo"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
@@ -20,6 +20,7 @@ const navItems = [
   { href: "/audit", label: "Audit", icon: ClipboardCheck },
   { href: "/valuation", label: "Valuation", short: "Value", icon: Gem },
   { href: "/e-invoicing", label: "E-Invoicing", icon: Network },
+  { href: "/activity", label: "Activity", icon: History },
 ]
 
 function useActive() {

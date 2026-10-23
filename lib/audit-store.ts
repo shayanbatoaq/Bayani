@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { AuditRequest, AuditRequestInput } from "./audit-request"
+import { logActivity } from "./activity-store"
 import { ownerDirectory } from "./financial-store"
 import { listStoredData, saveStoredData } from "./supabase/data-store"
 
@@ -23,13 +24,18 @@ export async function listAuditRequests(owner: string): Promise<AuditRequest[]> 
 export async function saveAuditRequest(owner: string, input: AuditRequestInput, companyName: string) {
   const request: AuditRequest = { ...input, years: [...input.years].sort((a, b) => a - b), id: randomUUID(), companyName, createdAt: new Date().toISOString(), status: "Received" }
   const saved = await saveStoredData(owner, "audit-requests", request.id, request, 0)
-  if (saved) return request
+  const log = () => logActivity(owner, { area: "audit", companyId: input.companyId, companyName, summary: `Audit request submitted for ${request.years.join(", ")}`, changes: [] })
+  if (saved) {
+    await log()
+    return request
+  }
 
   const list = [request, ...(await listAuditRequests(owner))].slice(0, 200)
   await mkdir(ownerDirectory(owner), { recursive: true, mode: 0o700 })
   const temporary = `${file(owner)}.${randomUUID()}.tmp`
   await writeFile(temporary, JSON.stringify(list), { encoding: "utf8", mode: 0o600 })
   await rename(temporary, file(owner))
+  await log()
   return request
 }
 

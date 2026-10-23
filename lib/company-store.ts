@@ -1,4 +1,6 @@
 import "server-only"
+import { describeCompany, describeExtras } from "./activity"
+import { logActivity } from "./activity-store"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -132,7 +134,7 @@ export async function saveCompany(
         "Your subscription includes one company. Each additional company is a paid add-on.",
         402
       )
-    return write(owner, {
+    const created = await write(owner, {
       ...draft,
       id: randomUUID(),
       revision: 1,
@@ -147,6 +149,8 @@ export async function saveCompany(
       vatSettings: {},
       documents: input.documents ?? [],
     })
+    await logActivity(owner, describeCompany(null, created))
+    return created
   }
   const existing = companies.find((company) => company.id === input.id)
   if (!existing) throw new FinancialError("Company not found.", 404)
@@ -155,13 +159,15 @@ export async function saveCompany(
       "This company was changed elsewhere. Reload before saving.",
       409
     )
-  return write(owner, {
+  const updated = await write(owner, {
     ...existing,
     ...draft,
     documents: [...existing.documents, ...(input.documents ?? [])].slice(-20),
     revision: existing.revision + 1,
     updatedAt: now,
   })
+  await logActivity(owner, describeCompany(existing, updated))
+  return updated
 }
 
 /** Update the company's working data (custom heads, VAT figures) without a revision check. */
@@ -173,11 +179,13 @@ export async function updateCompanyExtras(
   const existing = await getCompany(owner, id)
   if (!existing) throw new FinancialError("Company not found.", 404)
   const extras = companyExtrasSchema.parse({ ...existing, ...patch })
-  return write(owner, {
+  const saved = await write(owner, {
     ...existing,
     ...extras,
     updatedAt: new Date().toISOString(),
   })
+  await logActivity(owner, describeExtras(existing, patch))
+  return saved
 }
 
 
@@ -185,6 +193,8 @@ export async function updateCompanyExtras(
 export async function deleteCompany(owner: string, id: string) {
   const existing = await getCompany(owner, id)
   if (!existing) throw new FinancialError("Company not found.", 404)
+  // The log keeps the company's history after it is removed.
+  await logActivity(owner, { area: "company", companyId: id, companyName: existing.name, summary: `Company ${existing.name} deleted with all its years, books and statements`, changes: [] })
   const removed = await deleteStoredData(owner, "companies", id)
   if (removed) {
     await Promise.all([

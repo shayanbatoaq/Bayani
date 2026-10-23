@@ -1,4 +1,6 @@
 import "server-only"
+import { describeRecord } from "./activity"
+import { logActivity } from "./activity-store"
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 import {
   mkdir,
@@ -196,6 +198,7 @@ export async function saveFinancialRecord(
         )
       throw error
     }
+    await logActivity(owner, describeRecord(stored?.value ?? null, input))
     return (await listFinancialRecords(owner)).find((item) => item.id === id) ?? record
   }
 
@@ -240,6 +243,7 @@ export async function saveFinancialRecord(
       mode: 0o600,
     })
     await rename(temporary, filename)
+    await logActivity(owner, describeRecord(existing, input))
     // Statements depend on the year before (movement entry), so return the resolved record.
     return (
       (await listFinancialRecords(owner)).find((item) => item.id === id) ?? record
