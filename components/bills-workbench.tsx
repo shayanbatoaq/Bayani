@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { CreditCard, FilePlus2, FileText, Loader2, Paperclip, Pencil, Plus, Search, Sparkles, Trash2, Users } from "lucide-react"
+import { AlertTriangle, CreditCard, FilePlus2, FileText, Loader2, Paperclip, Pencil, Plus, Search, ShieldCheck, Sparkles, Trash2, Users } from "lucide-react"
 
 import {
   CompanySwitch,
@@ -27,14 +27,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { VAT_TREATMENTS, billTotal, round2, type Bill, type Books, type BooksAction, type VatTreatment } from "@/lib/books"
 import { billStatus } from "@/lib/books-engine"
-import type { BillFields } from "@/lib/bill-rules"
+import type { BillCheck, BillFields } from "@/lib/bill-rules"
 import type { Company } from "@/lib/company"
-import { readDocument, type ReadProgress } from "@/lib/document-reader"
+import { pdfPageImages, readDocument, type ReadProgress } from "@/lib/document-reader"
 import { cn } from "@/lib/utils"
 
 type Change = (action: BooksAction) => Promise<Books>
 type Attachment = NonNullable<Bill["attachment"]>
-type Draft = { fields: BillFields; sources: Record<string, string>; attachment: Attachment | null; preview: string | null; ai: string }
+type Draft = { fields: BillFields; sources: Record<string, string>; attachment: Attachment | null; preview: string | null; ai: string; check: BillCheck }
 
 const isOverdue = (books: Books, bill: Bill) => billStatus(books, bill).due > 0 && Boolean(bill.dueDate) && bill.dueDate < today()
 const statusOf = (books: Books, bill: Bill) => (isOverdue(books, bill) ? "overdue" : billStatus(books, bill).status)
@@ -70,12 +70,13 @@ export function BillsWorkbench() {
         return d.attachment as Attachment
       })
       const text = await readDocument(file, (p: ReadProgress) => setReading(p.ocr ? `Reading the scan (page ${p.page} of ${p.pages})…` : `Reading page ${p.page} of ${p.pages}…`))
-      const image = file.type.startsWith("image/") ? await downscale(file) : undefined
+      // The pages themselves go with the text, so the AI reading sees the layout (tables, columns).
+      const images = file.type.startsWith("image/") ? [await downscale(file)] : await pdfPageImages(file, 2).catch(() => [])
       setReading("Finding the supplier, amounts and VAT…")
       const response = await fetch("/api/books/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, image, ownTrn: company!.vat.trn || undefined, ownName: company!.name, heads: costHeads(company!.customHeads).map((h) => h.name) }),
+        body: JSON.stringify({ text, images, ownTrn: company!.vat.trn || undefined, ownName: company!.name, heads: costHeads(company!.customHeads).map((h) => h.name) }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
@@ -84,7 +85,7 @@ export function BillsWorkbench() {
         setReadError(`The document was read but not attached: ${cause instanceof Error ? cause.message : "it could not be saved"}`)
         return null
       })
-      setEditing({ bill: null, draft: { fields: data.fields, sources: data.sources, attachment, preview: URL.createObjectURL(file), ai: data.ai } })
+      setEditing({ bill: null, draft: { fields: data.fields, sources: data.sources, attachment, preview: URL.createObjectURL(file), ai: data.ai, check: data.check } })
     } catch (cause) {
       setReadError(cause instanceof Error ? cause.message : "The document could not be read.")
     } finally {
@@ -320,6 +321,7 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
   const [months, setMonths] = useState<number | null>(initial?.months ?? null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [confirmed, setConfirmed] = useState(false)
   const attachment = initial?.attachment ?? draft?.attachment ?? null
 
   const netValue = Number(net.replace(/,/g, "")) || 0
@@ -327,6 +329,9 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
   const total = billTotal({ net: netValue, vat: vatValue, vatTreatment: treatmentVat })
   const isAsset = head?.scheduleKey === "ppe"
   const spreadable = !isAsset && head && SPREADABLE.test(head.name)
+  // Amounts that were not proven from the document, or that were changed from what it shows, are confirmed by the user.
+  const changed = draft?.check.amounts === "proven" && (Math.abs((f.net ?? 0) - netValue) > 0.005 || Math.abs((f.vat ?? 0) - vatValue) > 0.005)
+  const needsConfirm = Boolean(draft) && (draft!.check.amounts !== "proven" || changed)
   const missing = (key: keyof BillFields) => Boolean(draft) && draft!.fields[key] === undefined
   const from = (key: string) => draft?.sources[key]
 
@@ -336,6 +341,7 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
     if (!head) return setError("Choose the expense type.")
     if (!(netValue > 0)) return setError("Enter the amount before VAT.")
     if (isAsset && !months) return setError("Choose the asset's useful life, so it can be depreciated.")
+    if (needsConfirm && !confirmed) return setError("Tick the box to confirm you checked the amounts against the document.")
     setSaving(true)
     try {
       const bill: Bill = {
@@ -376,19 +382,29 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
     <div className="grid gap-5 lg:grid-cols-[1fr_18rem]">
       <div className="min-w-0 space-y-4">
         {draft && (
-          <p className="note note-good text-sm">
-            <Sparkles className="mt-0.5 size-4 shrink-0" />
-            <span>
-              Read {Object.keys(draft.sources).length} details from the document{draft.ai === "used" ? " with AI" : ""}. Check them, and fill in anything marked “not found”.
-            </span>
-          </p>
+          <div className={cn("note text-sm", draft.check.amounts === "proven" ? "note-good" : "note-warning")}>
+            {draft.check.amounts === "proven" ? <ShieldCheck className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
+            <div className="space-y-1">
+              <p>
+                {draft.check.amounts === "proven"
+                  ? `Amounts checked: ${aed(f.net ?? 0)} before VAT + ${aed(f.vat ?? 0)} VAT = ${aed(f.total ?? 0)}, as printed on the bill.`
+                  : "Check the amounts against the document before posting."}{" "}
+                Read {Object.keys(draft.sources).length} details{draft.ai === "used" ? " (document rules and AI, compared)" : " (document rules)"}; fill in anything marked “not found”.
+              </p>
+              {draft.check.notes.map((n) => (
+                <p key={n} className="text-xs opacity-90">
+                  {n}
+                </p>
+              ))}
+            </div>
+          </div>
         )}
         {addingVendor ? (
           <div className="rounded-xl border p-4">
             <p className="mb-3 font-medium">New supplier {tag("supplier")}</p>
             <PartyForm
               kind="vendor"
-              initial={{ name: f.supplier ?? "", trn: f.vendorTrn ?? "" }}
+              initial={{ name: f.supplier ?? "", trn: f.vendorTrn ?? "", address: f.address ?? "" }}
               onCancel={() => setAddingVendor(false)}
               onSave={async (party) => {
                 await change({ action: "party", kind: "vendor", party })
@@ -499,6 +515,12 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
         <Field label="Details">
           <textarea className="min-h-16 w-full rounded-md border px-3 py-2 text-sm" value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
+        {needsConfirm && (
+          <label className="flex items-start gap-2 rounded-xl border border-[var(--saffron)] bg-[var(--saffron-wash)] p-3 text-sm">
+            <input type="checkbox" className="mt-1" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            <span>{changed ? "The amounts differ from what Bayani read on the document. " : ""}I have checked the amount before VAT, the VAT and the total against the document.</span>
+          </label>
+        )}
         {error && <p className="text-sm text-[#b42318]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button onClick={() => void save()} disabled={saving || addingVendor}>

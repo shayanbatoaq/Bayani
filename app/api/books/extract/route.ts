@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { readBill, type BillFields } from "@/lib/bill-rules"
+import { readBill, type BillCheck, type BillFields } from "@/lib/bill-rules"
 import { normaliseDate } from "@/lib/document-rules"
 import { financialErrorResponse, financialOwner } from "@/lib/financial-store"
 import { assertSameOrigin, readJson } from "@/lib/request-guard"
@@ -10,7 +10,7 @@ export const maxDuration = 90
 /** The document is read in the browser (text layer or OCR); its text, and a photo when it is one, come here. */
 const bodySchema = z.object({
   text: z.string().max(400_000),
-  image: z.string().max(6_000_000).regex(/^data:image\/(png|jpeg|webp);base64,/).optional(),
+  images: z.array(z.string().max(3_000_000).regex(/^data:image\/(png|jpeg|webp);base64,/)).max(3).default([]),
   ownTrn: z.string().max(20).optional(),
   ownName: z.string().max(200).optional(),
   heads: z.array(z.string().max(120)).max(400).default([]),
@@ -34,10 +34,11 @@ async function readWithAi(body: z.infer<typeof bodySchema>): Promise<BillFields 
   const ai = provider()
   if (!ai) return null
   const instructions = `You read supplier bills, purchase invoices and receipts for a UAE business${body.ownName ? ` called "${body.ownName}"` : ""} (the buyer; never return the buyer as the supplier${body.ownTrn ? ` and never return TRN ${body.ownTrn}` : ""}).
+Read the figures exactly as printed. "net" is the total before VAT for the whole bill (sub total / taxable amount), "vat" the total VAT for the whole bill, "total" the bill total including VAT (before deducting any advance or payment). Ignore tax summary tables that repeat the taxable amount. Check that net + vat = total.
 Return ONLY JSON: {"supplier": string, "vendorTrn": string (15 digits), "date": "YYYY-MM-DD", "number": string (bill / invoice / receipt number), "net": number (amount before VAT), "vat": number, "total": number (amount with VAT), "payment": "cash"|"card"|"bank"|"credit"|"", "description": string (what was bought, short), "expenseHead": string (choose the closest of: ${body.heads.slice(0, 120).join("; ")})}.
 Use "" or omit a key when the document does not show it; never guess numbers. UAE numeric dates are day/month/year. Amounts in AED.`
   const content: unknown[] = [{ type: "text", text: body.text.slice(0, 40_000) || "(no text layer)" }]
-  if (body.image) content.push({ type: "image_url", image_url: { url: body.image } })
+  for (const url of body.images) content.push({ type: "image_url", image_url: { url, detail: "high" } })
   const response = await fetch(ai.endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${ai.key}`, "Content-Type": "application/json", ...ai.extra },
@@ -63,6 +64,9 @@ Use "" or omit a key when the document does not show it; never guess numbers. UA
 }
 
 const adds = (f: BillFields) => f.net !== undefined && f.vat !== undefined && f.total !== undefined && Math.abs(f.net + f.vat - f.total) < 0.05
+/** A reading whose figures hold together: they add up, and the VAT is 5% of the amount before it (or nil). */
+const holds = (f: BillFields) => adds(f) && f.net! > 0 && (Math.abs(f.vat! - f.net! * 0.05) <= Math.max(0.06, f.net! * 0.0002) || f.vat === 0)
+const same = (a: BillFields, b: BillFields) => (["net", "vat", "total"] as const).every((k) => a[k] !== undefined && b[k] !== undefined && Math.abs(a[k]! - b[k]!) < 0.02)
 
 export async function POST(request: Request) {
   try {
@@ -70,7 +74,7 @@ export async function POST(request: Request) {
     await financialOwner()
     const parsed = bodySchema.safeParse(await readJson(request, 8_000_000))
     if (!parsed.success) return Response.json({ error: "This document could not be read." }, { status: 400 })
-    const rules = readBill(parsed.data.text, { ownTrn: parsed.data.ownTrn, ownName: parsed.data.ownName })
+    const { check: ruleCheck, ...rules } = readBill(parsed.data.text, { ownTrn: parsed.data.ownTrn, ownName: parsed.data.ownName })
     let ai: BillFields | null = null
     let status: "used" | "unavailable" | "failed" = "unavailable"
     try {
@@ -82,22 +86,31 @@ export async function POST(request: Request) {
     }
     const fields: BillFields = { ...rules }
     const sources: Record<string, "document" | "AI"> = Object.fromEntries(Object.keys(rules).map((k) => [k, "document"]))
+    const check: BillCheck = { amounts: ruleCheck.amounts, notes: [...ruleCheck.notes] }
     if (ai) {
-      // The AI reading is preferred for words; figures are taken from it unless the document's own figures add up.
+      // Words: the AI reading, which sees the page, is preferred.
       for (const key of ["supplier", "vendorTrn", "date", "number", "payment", "description", "ledgerName"] as const)
         if (ai[key] !== undefined) {
           ;(fields as Record<string, unknown>)[key] = ai[key]
           sources[key] = "AI"
         }
-      if (!adds(rules) && (adds(ai) || ai.total !== undefined))
-        for (const key of ["net", "vat", "total"] as const)
-          if (ai[key] !== undefined) {
-            fields[key] = ai[key]
-            sources[key] = "AI"
-          }
-      if (ai.ledgerName) fields.scheduleKey = undefined
-    }
-    return Response.json({ fields, sources, ai: status }, { headers: { "Cache-Control": "private, no-store" } })
+      if (ai.ledgerName) delete fields.scheduleKey
+      // Figures: whichever reading is arithmetically proven; when both are, they must agree.
+      const rulesProven = ruleCheck.amounts === "proven"
+      if (rulesProven && holds(ai) && !same(rules, ai)) {
+        check.amounts = "partial"
+        check.notes = [`Two readings of the amounts differ: the document's figures give ${rules.net} + ${rules.vat} = ${rules.total}, the AI reading ${ai.net} + ${ai.vat} = ${ai.total}. Check which is right.`]
+      } else if (!rulesProven && holds(ai)) {
+        for (const key of ["net", "vat", "total"] as const) {
+          fields[key] = ai[key]
+          sources[key] = "AI"
+        }
+        check.amounts = "proven"
+        check.notes = ["Amounts read by AI from the page; they add up and the VAT is consistent."]
+      } else if (rulesProven && same(rules, ai)) check.notes.push("The document's figures and the AI reading agree.")
+    } else if (status === "failed") check.notes.push("The AI reading was not available this time; the document rules were used.")
+    for (const key of Object.keys(fields) as (keyof BillFields)[]) if (fields[key] === undefined) delete fields[key]
+    return Response.json({ fields, sources, ai: status, check }, { headers: { "Cache-Control": "private, no-store" } })
   } catch (error) {
     return financialErrorResponse(error)
   }
