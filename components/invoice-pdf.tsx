@@ -29,6 +29,9 @@ export function InvoicePdf({ company, books, invoice, note, logo }: { company: C
   const net = lines.reduce((t, l) => t + l.net, 0)
   const vat = lines.reduce((t, l) => t + l.vat, 0)
   const st = invoiceStatus(books, invoice)
+  const cur = invoice.currency ?? company.baseCurrency ?? "AED"
+  // UAE tax invoices in another currency also state the amounts and VAT in AED.
+  const aedPer = cur === "AED" ? 1 : (invoice.aedRate ?? ((company.baseCurrency ?? "AED") === "AED" ? invoice.rate : 0))
   const { settings } = books
   const bank = settings.bank
   return (
@@ -68,7 +71,7 @@ export function InvoicePdf({ company, books, invoice, note, logo }: { company: C
         </View>
 
         <View style={s.head}>
-          {["Description", "Qty", "Rate", "VAT", "VAT (AED)", "Amount (AED)"].map((h, i) => (
+          {["Description", "Qty", "Rate", "VAT", `VAT (${cur})`, `Amount (${cur})`].map((h, i) => (
             <Text key={h} style={{ flex: cols[i], textAlign: i ? "right" : "left" }}>
               {h}
             </Text>
@@ -101,7 +104,7 @@ export function InvoicePdf({ company, books, invoice, note, logo }: { company: C
               </View>
             ) : null}
             <View style={[s.total, { borderTopWidth: 1, borderColor: ink, marginTop: 2, paddingTop: 5 }]}>
-              <Text style={{ fontWeight: "bold" }}>{note ? "Total credited (AED)" : "Total (AED)"}</Text>
+              <Text style={{ fontWeight: "bold" }}>{note ? `Total credited (${cur})` : `Total (${cur})`}</Text>
               <Text style={{ fontWeight: "bold" }}>{money(net + vat)}</Text>
             </View>
             {!note && (st.credited > 0 || st.paid > 0) ? (
@@ -122,13 +125,34 @@ export function InvoicePdf({ company, books, invoice, note, logo }: { company: C
             ) : null}
             {!note ? (
               <View style={[s.total, { backgroundColor: "#eef2f7", paddingHorizontal: 6, marginTop: 4 }]}>
-                <Text style={{ fontWeight: "bold" }}>Amount due (AED)</Text>
+                <Text style={{ fontWeight: "bold" }}>Amount due ({cur})</Text>
                 <Text style={{ fontWeight: "bold" }}>{money(st.due)}</Text>
               </View>
             ) : null}
           </View>
         </View>
 
+        {cur !== "AED" && aedPer > 0 ? (
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 10 }} wrap={false}>
+            <View style={{ width: 230, borderWidth: 0.6, borderColor: "#c9d0db", padding: 6 }}>
+              <Text style={[s.label, { marginBottom: 4 }]}>In AED at 1 {cur} = {aedPer} AED</Text>
+              <View style={s.total}>
+                <Text>Total excluding VAT (AED)</Text>
+                <Text>{money(net * aedPer)}</Text>
+              </View>
+              {vatRegistered ? (
+                <View style={s.total}>
+                  <Text>VAT (AED)</Text>
+                  <Text>{money(vat * aedPer)}</Text>
+                </View>
+              ) : null}
+              <View style={s.total}>
+                <Text style={{ fontWeight: "bold" }}>Total (AED)</Text>
+                <Text style={{ fontWeight: "bold" }}>{money((net + vat) * aedPer)}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
         {!note && (bank.iban || bank.accountNumber) ? (
           <View style={{ marginTop: 22 }} wrap={false}>
             <Text style={s.label}>Payment details</Text>

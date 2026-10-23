@@ -72,6 +72,7 @@ function CardHeading({ model, title, subtitle }: { model: ReportModel; title: st
         <p className="text-sm text-muted-foreground">
           {model.companyName} · {subtitle} · {model.currency}
         </p>
+        {model.currencyNote && <p className="mt-1 text-xs text-muted-foreground">{model.currencyNote}</p>}
       </div>
     </header>
   )

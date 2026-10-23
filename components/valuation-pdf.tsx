@@ -36,7 +36,7 @@ export function ValuationPdf({ company, v, logo }: { company: Company; v: Valuat
 
         <View style={s.hero}>
           <View>
-            <Text style={{ fontSize: 8, color: "#aab" }}>INDICATIVE EQUITY VALUE (AED)</Text>
+            <Text style={{ fontSize: 8, color: "#aab" }}>INDICATIVE EQUITY VALUE ({company.baseCurrency ?? "AED"})</Text>
             <Text style={{ fontSize: 22, fontWeight: "bold", marginTop: 4, lineHeight: 1.25 }}>{aed(v.value)}</Text>
             <Text style={{ fontSize: 9, color: "#ccd", marginTop: 2 }}>
               Range {aed(v.low)} – {aed(v.high)}

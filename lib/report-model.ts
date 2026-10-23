@@ -55,6 +55,8 @@ export type ReportModel = {
   /** Signature line, e.g. "Dubai, U.A.E.". */
   place: string
   currency: string
+  /** When shown in a currency other than the books': the rates used. */
+  currencyNote?: string
   year: number
   priorYear: number | null
   periodEnd: string

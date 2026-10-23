@@ -37,8 +37,13 @@ export const partnerSchema = z.object({
   shareValue: money,
 })
 
+export const BASE_CURRENCIES = ["AED", "USD", "GBP", "EUR"] as const
+export type BaseCurrency = (typeof BASE_CURRENCIES)[number]
+
 export const companyDraftSchema = z
   .object({
+    /** Currency the books, data input and reports are kept in. */
+    baseCurrency: z.enum(BASE_CURRENCIES).default("AED"),
     name: z.string().trim().min(2, "Company name is required").max(160),
     legalForm: z.string().trim().max(120).default("Limited Liability Company"),
     authority: z.string().trim().min(2, "Licensing authority is required").max(160),
@@ -100,7 +105,7 @@ export const companyExtrasSchema = z.object({
   vatSettings: z.object({ taxYearStartMonth: z.number().int().min(1).max(12).optional() }).default({}),
   /** Bank statement lines the user has categorised, remembered by counterparty for the next upload. */
   bankRules: z
-    .array(z.object({ pattern: z.string().trim().min(1).max(120), category: z.string().max(40) }))
+    .array(z.object({ pattern: z.string().trim().min(1).max(120), category: z.string().max(160), vat: z.enum(["incl", "none"]).optional(), party: z.string().max(60).optional() }))
     .max(3000)
     .default([]),
   /** Company logo shown on reports (file kept next to the company record). */
@@ -132,6 +137,7 @@ export type Company = CompanyDraft &
 
 export function emptyCompanyDraft(): CompanyDraft {
   return {
+    baseCurrency: "AED",
     name: "",
     legalForm: "Limited Liability Company",
     authority: "",

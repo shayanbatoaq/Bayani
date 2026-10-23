@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { emptyBooks, type Books, type BooksAction, type Party } from "@/lib/books"
 import type { Company } from "@/lib/company"
 import { categoryOf } from "@/lib/financial-statements"
+import { fetchRate } from "@/lib/fx"
 import { ledgerHeads } from "@/lib/ledger-heads"
 import { cn } from "@/lib/utils"
 
@@ -465,7 +466,7 @@ export function SpreadChoice({ kind, months, onChange, amount }: { kind: "prepai
       </div>
       {months && amount ? (
         <p className="text-xs text-muted-foreground">
-          {kind === "asset" ? "Depreciation" : "Expense"} of AED {aed(amount / months)} a month for {months} months, posted automatically.
+          {kind === "asset" ? "Depreciation" : "Expense"} of {aed(amount / months)} a month for {months} months, posted automatically.
         </p>
       ) : null}
     </div>
@@ -484,4 +485,81 @@ export async function changeBooks(companyId: string, action: BooksAction) {
   const data = await response.json()
   if (!response.ok) throw new Error(data.error || "Could not save.")
   return data.books as Books
+}
+
+/**
+ * The currency of an invoice or bill, with the rate into the base currency and (for UAE tax
+ * invoices) into AED, fetched for the document date and editable.
+ */
+export function DocumentCurrency({
+  base,
+  value,
+  date,
+  onChange,
+  label = "Currency",
+}: {
+  base: string
+  value: { currency: string; rate: number; aedRate?: number }
+  date: string
+  onChange: (next: { currency: string; rate: number; aedRate?: number }) => void
+  label?: string
+}) {
+  const [doneKey, setDoneKey] = useState("")
+  const [note, setNote] = useState("")
+  const key = `${value.currency}|${date}|${base}`
+  const busy = doneKey !== key && !(value.currency === base && base === "AED")
+  const fetched = useRef("")
+  useEffect(() => {
+    if (fetched.current === key) return
+    fetched.current = key
+    if (value.currency === base && base === "AED") {
+      if (value.rate !== 1 || value.aedRate !== undefined) onChange({ currency: value.currency, rate: 1, aedRate: undefined })
+      return
+    }
+    let cancelled = false
+    Promise.all([fetchRate(value.currency, base, date), value.currency === "AED" ? null : fetchRate(value.currency, "AED", date)])
+      .then(([toBase, toAed]) => {
+        if (cancelled) return
+        onChange({ currency: value.currency, rate: toBase.rate || value.rate, aedRate: toAed ? toAed.rate : undefined })
+        setNote(toBase.source === "fallback" || toAed?.source === "fallback" ? "Approximate rate: check it." : toBase.source === "peg" && (!toAed || toAed.source === "peg") ? "Fixed peg rate." : `ECB rate for ${toBase.date}.`)
+      })
+      .catch(() => !cancelled && setNote("No rate could be fetched: type it."))
+      .finally(() => !cancelled && setDoneKey(key))
+    return () => {
+      cancelled = true
+    }
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const options = [...new Set([base, "AED", "USD", "EUR", "GBP"])]
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="space-y-1.5">
+          <span className="block text-[13px] font-medium">{label}</span>
+          <select aria-label={label} className="h-10 rounded-md border bg-white px-3 text-sm" value={value.currency} onChange={(e) => onChange({ ...value, currency: e.target.value })}>
+            {options.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        {value.currency !== base && (
+          <label className="space-y-1.5">
+            <span className="block text-[13px] font-medium">
+              1 {value.currency} = … {base}
+            </span>
+            <Input inputMode="decimal" className="w-32" aria-label={`Rate ${value.currency} to ${base}`} value={String(value.rate)} onChange={(e) => onChange({ ...value, rate: Number(e.target.value) || 0 })} />
+          </label>
+        )}
+        {value.currency !== "AED" && base !== "AED" && (
+          <label className="space-y-1.5">
+            <span className="block text-[13px] font-medium">1 {value.currency} = … AED</span>
+            <Input inputMode="decimal" className="w-32" aria-label={`Rate ${value.currency} to AED`} value={String(value.aedRate ?? "")} onChange={(e) => onChange({ ...value, aedRate: Number(e.target.value) || undefined })} />
+          </label>
+        )}
+        {busy && <Loader2 className="mb-3 size-4 animate-spin text-muted-foreground" />}
+      </div>
+      {(value.currency !== base || (value.currency !== "AED" && base !== "AED")) && note && <p className="text-xs text-muted-foreground">{note}</p>}
+    </div>
+  )
 }

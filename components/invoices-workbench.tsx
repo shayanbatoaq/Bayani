@@ -6,6 +6,7 @@ import { Building2, CreditCard, Download, FilePlus2, Loader2, Pencil, Plus, Rece
 
 import {
   CompanySwitch,
+  DocumentCurrency,
   Field,
   Modal,
   PartyForm,
@@ -60,14 +61,17 @@ export function InvoicesWorkbench() {
   if (loading) return <Loading />
   if (!company) return <NoData title="No company yet" text="Add your company on the Dashboard first." href="/dashboard" action="Go to Dashboard" />
 
+  const base = company.baseCurrency ?? "AED"
   const year = String(new Date().getFullYear())
   const totals = books.invoices.reduce(
     (t, inv) => {
       const st = invoiceStatus(books, inv)
-      if (inv.date.startsWith(year)) t.invoiced += st.total - st.credited
-      t.outstanding += st.due
-      if (isOverdue(books, inv)) t.overdue += st.due
-      t.received += inv.date.startsWith(year) ? st.paid : 0
+      // In the base currency, at each invoice's own rate.
+      const r = inv.rate ?? 1
+      if (inv.date.startsWith(year)) t.invoiced += (st.total - st.credited) * r
+      t.outstanding += st.due * r
+      if (isOverdue(books, inv)) t.overdue += st.due * r
+      t.received += inv.date.startsWith(year) ? st.paid * r : 0
       return t
     },
     { invoiced: 0, outstanding: 0, overdue: 0, received: 0 },
@@ -102,10 +106,10 @@ export function InvoicesWorkbench() {
       {error && <p className="note note-alert text-sm">{error}</p>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Tile label={`Invoiced in ${year}`} value={totals.invoiced} />
-        <Tile label={`Received in ${year}`} value={totals.received} tone="good" />
-        <Tile label="Outstanding" value={totals.outstanding} />
-        <Tile label="Overdue" value={totals.overdue} tone={totals.overdue > 0 ? "alert" : undefined} />
+        <Tile currency={base} label={`Invoiced in ${year}`} value={totals.invoiced} />
+        <Tile currency={base} label={`Received in ${year}`} value={totals.received} tone="good" />
+        <Tile currency={base} label="Outstanding" value={totals.outstanding} />
+        <Tile currency={base} label="Overdue" value={totals.overdue} tone={totals.overdue > 0 ? "alert" : undefined} />
       </div>
 
       {setupNeeded && (
@@ -169,7 +173,7 @@ export function InvoicesWorkbench() {
             </select>
           </div>
           {list.length ? (
-            <InvoiceTable books={books} list={list} onOpen={setViewing} />
+            <InvoiceTable books={books} list={list} onOpen={setViewing} base={base} />
           ) : (
             <div className="space-y-3 p-10 text-center">
               <ReceiptText className="mx-auto size-8 text-muted-foreground" />
@@ -182,6 +186,7 @@ export function InvoicesWorkbench() {
 
       {tab === "customers" && (
         <Customers
+          base={base}
           books={books}
           change={change}
           onShow={(id) => {
@@ -220,16 +225,16 @@ export function InvoicesWorkbench() {
   )
 }
 
-function Tile({ label, value, tone }: { label: string; value: number; tone?: "good" | "alert" }) {
+function Tile({ label, value, tone, currency }: { label: string; value: number; tone?: "good" | "alert"; currency: string }) {
   return (
     <div className="panel p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 font-display text-xl font-semibold tabular-nums", tone === "good" && "text-[#0b6b62]", tone === "alert" && "text-[#b42318]")}>AED {aed(value)}</p>
+      <p className={cn("mt-1 font-display text-xl font-semibold tabular-nums", tone === "good" && "text-[#0b6b62]", tone === "alert" && "text-[#b42318]")}>{currency} {aed(value)}</p>
     </div>
   )
 }
 
-function InvoiceTable({ books, list, onOpen }: { books: Books; list: Invoice[]; onOpen: (id: string) => void }) {
+function InvoiceTable({ books, list, onOpen, base }: { books: Books; list: Invoice[]; onOpen: (id: string) => void; base: string }) {
   return (
     <>
       <table className="hidden w-full text-sm md:table">
@@ -255,7 +260,10 @@ function InvoiceTable({ books, list, onOpen }: { books: Books; list: Invoice[]; 
                 </td>
                 <td className="px-4 py-3">{shortDate(inv.date)}</td>
                 <td className="px-4 py-3">{books.clients.find((c) => c.id === inv.clientId)?.name}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{aed(st.total)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {inv.currency && inv.currency !== base ? <span className="mr-1 text-xs text-muted-foreground">{inv.currency}</span> : null}
+                  {aed(st.total)}
+                </td>
                 <td className="px-4 py-3 text-right font-medium tabular-nums">{aed(st.due)}</td>
                 <td className="px-4 py-3">
                   <StatusPill status={statusOf(books, inv)} />
@@ -278,7 +286,10 @@ function InvoiceTable({ books, list, onOpen }: { books: Books; list: Invoice[]; 
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
-                  <span className="block font-medium tabular-nums">{aed(st.due || st.total)}</span>
+                  <span className="block font-medium tabular-nums">
+                    {inv.currency && inv.currency !== base ? `${inv.currency} ` : ""}
+                    {aed(st.due || st.total)}
+                  </span>
                   <StatusPill status={statusOf(books, inv)} />
                 </span>
               </button>
@@ -340,7 +351,7 @@ export function LinesEditor({
               <Field label="Quantity">
                 <Input inputMode="decimal" value={String(line.quantity)} onChange={(e) => set(line.id, { quantity: Math.max(0, Number(e.target.value) || 0) })} />
               </Field>
-              <Field label="Rate (AED)">
+              <Field label="Rate">
                 <Input inputMode="decimal" value={line.rate ? String(line.rate) : ""} placeholder="0.00" onChange={(e) => set(line.id, { rate: Number(e.target.value.replace(/,/g, "")) || 0 })} />
               </Field>
               {vatRegistered ? (
@@ -377,16 +388,35 @@ export function LinesEditor({
   )
 }
 
-function InvoiceForm({ company, books, change, initial, onDone }: { company: Company; books: Books; change: Change; initial: Invoice | null; onDone: (id: string) => void }) {
+/** What an invoice made from a bank receipt starts with. */
+export type InvoicePrefill = { clientId?: string; clientName?: string; date: string; currency: string; lines: Line[]; notes?: string }
+
+export function InvoiceForm({
+  company,
+  books,
+  change,
+  initial,
+  onDone,
+  prefill,
+}: {
+  company: Company
+  books: Books
+  change: Change
+  initial: Invoice | null
+  onDone: (id: string, invoice: Invoice) => void | Promise<void>
+  prefill?: InvoicePrefill
+}) {
   const vatRegistered = Boolean(company.vat.trn)
+  const base = company.baseCurrency ?? "AED"
   const auto = books.settings.numbering === "auto"
-  const [clientId, setClientId] = useState(initial?.clientId ?? "")
-  const [addingClient, setAddingClient] = useState(!books.clients.length)
-  const [date, setDate] = useState(initial?.date ?? today())
-  const [dueDate, setDueDate] = useState(initial?.dueDate ?? addDays(today(), books.settings.paymentDays))
+  const [clientId, setClientId] = useState(initial?.clientId ?? prefill?.clientId ?? "")
+  const [addingClient, setAddingClient] = useState(!books.clients.length || Boolean(prefill && !prefill.clientId && prefill.clientName))
+  const [date, setDate] = useState(initial?.date ?? prefill?.date ?? today())
+  const [dueDate, setDueDate] = useState(initial?.dueDate ?? (prefill ? prefill.date : addDays(today(), books.settings.paymentDays)))
   const [number, setNumber] = useState(initial?.number ?? (auto ? nextInvoiceNumber(books) : ""))
-  const [lines, setLines] = useState<Line[]>(initial?.lines ?? [blankLine(vatRegistered ? "standard" : "outOfScope")])
-  const [notes, setNotes] = useState(initial?.notes ?? "")
+  const [lines, setLines] = useState<Line[]>(initial?.lines ?? prefill?.lines ?? [blankLine(vatRegistered ? "standard" : "outOfScope")])
+  const [fx, setFx] = useState<{ currency: string; rate: number; aedRate?: number }>({ currency: initial?.currency ?? prefill?.currency ?? base, rate: initial?.rate ?? 1, aedRate: initial?.aedRate })
+  const [notes, setNotes] = useState(initial?.notes ?? prefill?.notes ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const totals = documentTotals(lines)
@@ -398,11 +428,24 @@ function InvoiceForm({ company, books, change, initial, onDone }: { company: Com
     if (!number.trim()) return setError("Enter the invoice number.")
     const used = lines.filter((l) => l.quantity && (l.rate || l.item || l.description))
     if (!used.length || totals.total <= 0) return setError("Add at least one line with an amount.")
+    if (fx.currency !== base && !(fx.rate > 0)) return setError(`Enter the rate from ${fx.currency} to ${base}.`)
     setSaving(true)
     try {
-      const invoice: Invoice = { id: initial?.id ?? uid(), number: number.trim(), date, dueDate, clientId, lines: used, notes, createdAt: initial?.createdAt ?? new Date().toISOString() }
+      const invoice: Invoice = {
+        id: initial?.id ?? uid(),
+        number: number.trim(),
+        date,
+        dueDate,
+        clientId,
+        lines: used,
+        notes,
+        createdAt: initial?.createdAt ?? new Date().toISOString(),
+        currency: fx.currency,
+        rate: fx.currency === base ? 1 : fx.rate,
+        aedRate: fx.currency === "AED" ? undefined : (fx.aedRate ?? (base === "AED" ? fx.rate : undefined)),
+      }
       await change({ action: "invoice", invoice })
-      onDone(invoice.id)
+      await onDone(invoice.id, invoice)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save.")
     } finally {
@@ -422,6 +465,7 @@ function InvoiceForm({ company, books, change, initial, onDone }: { company: Com
           <p className="mb-3 font-medium">New client</p>
           <PartyForm
             kind="client"
+            initial={prefill?.clientName ? { name: prefill.clientName } : undefined}
             onCancel={() => setAddingClient(false)}
             onSave={async (party) => {
               await change({ action: "party", kind: "client", party })
@@ -450,15 +494,14 @@ function InvoiceForm({ company, books, change, initial, onDone }: { company: Com
               <option value="__new">+ New client…</option>
             </select>
           </Field>
-          <div className="text-sm text-muted-foreground sm:pt-6">
-            {client && (
-              <>
-                {client.trn ? `TRN ${client.trn}` : "No TRN"}
-                {client.email ? ` · ${client.email}` : ""}
-                {client.address ? <span className="block truncate">{client.address}</span> : null}
-              </>
-            )}
-          </div>
+          <DocumentCurrency base={base} value={fx} date={date} onChange={setFx} label="Invoice currency" />
+          {client && (
+            <p className="text-sm text-muted-foreground sm:col-span-2">
+              {client.trn ? `TRN ${client.trn}` : "No TRN"}
+              {client.email ? ` · ${client.email}` : ""}
+              {client.address ? ` · ${client.address}` : ""}
+            </p>
+          )}
         </div>
       )}
       <div className="grid gap-3 sm:grid-cols-3">
@@ -480,11 +523,26 @@ function InvoiceForm({ company, books, change, initial, onDone }: { company: Com
         </Field>
       </div>
       <LinesEditor lines={lines} onChange={setLines} items={books.items} vatRegistered={vatRegistered} treatments={VAT_TREATMENTS.filter((t) => t.invoice)} />
-      <div className="ml-auto max-w-xs space-y-1 text-sm">
-        <Row label="Total excluding VAT" value={totals.net} />
-        {vatRegistered && <Row label="VAT" value={totals.vat} />}
-        <Row label="Total with VAT" value={totals.total} strong />
-        <Row label="Amount due" value={totals.total} strong />
+      <div className="ml-auto grid max-w-xl gap-4 text-sm sm:grid-cols-2">
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-muted-foreground">{fx.currency}</p>
+          <Row label="Total excluding VAT" value={totals.net} />
+          {vatRegistered && <Row label="VAT" value={totals.vat} />}
+          <Row label="Total with VAT" value={totals.total} strong />
+        </div>
+        {fx.currency !== "AED" && (fx.aedRate ?? (base === "AED" ? fx.rate : 0)) > 0 && (
+          <div className="space-y-1 rounded-lg bg-muted/40 p-2">
+            <p className="text-xs font-semibold text-muted-foreground">AED (shown on the invoice, as UAE law requires)</p>
+            <Row label="Total excluding VAT" value={totals.net * (fx.aedRate ?? fx.rate)} />
+            {vatRegistered && <Row label="VAT" value={totals.vat * (fx.aedRate ?? fx.rate)} />}
+            <Row label="Total with VAT" value={totals.total * (fx.aedRate ?? fx.rate)} strong />
+          </div>
+        )}
+        {fx.currency !== base && base !== "AED" && (
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Booked in {base}: {aed(totals.total * fx.rate)} at 1 {fx.currency} = {fx.rate} {base}.
+          </p>
+        )}
       </div>
       <Field label="Notes on the invoice">
         <textarea className="min-h-16 w-full rounded-md border px-3 py-2 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -513,6 +571,7 @@ function Row({ label, value, strong }: { label: string; value: number; strong?: 
 
 function InvoiceView({ company, books, change, invoice, onClose, onEdit }: { company: Company; books: Books; change: Change; invoice: Invoice; onClose: () => void; onEdit: () => void }) {
   const st = invoiceStatus(books, invoice)
+  const cur = invoice.currency ?? company.baseCurrency ?? "AED"
   const client = books.clients.find((c) => c.id === invoice.clientId)
   const payments = books.payments.filter((p) => p.kind === "invoice" && p.docId === invoice.id)
   const notes = books.creditNotes.filter((c) => c.invoiceId === invoice.id)
@@ -537,7 +596,7 @@ function InvoiceView({ company, books, change, invoice, onClose, onEdit }: { com
     const response = await fetch(pdfUrl("invoice", invoice.id))
     if (!response.ok) throw new Error("The PDF could not be made.")
     const file = new File([await response.blob()], `Invoice-${invoice.number}.pdf`, { type: "application/pdf" })
-    const text = `Invoice ${invoice.number} from ${company.name}: AED ${aed(st.due)} due${invoice.dueDate ? ` by ${shortDate(invoice.dueDate)}` : ""}.`
+    const text = `Invoice ${invoice.number} from ${company.name}: ${cur} ${aed(st.due)} due${invoice.dueDate ? ` by ${shortDate(invoice.dueDate)}` : ""}.`
     if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: `Invoice ${invoice.number}`, text })
     else {
       await downloadFile(pdfUrl("invoice", invoice.id), file.name)
@@ -571,7 +630,9 @@ function InvoiceView({ company, books, change, invoice, onClose, onEdit }: { com
             </div>
             <div className="text-right">
               <StatusPill status={statusOf(books, invoice)} />
-              <p className="mt-1 font-display text-2xl font-semibold tabular-nums">AED {aed(st.due)}</p>
+              <p className="mt-1 font-display text-2xl font-semibold tabular-nums">
+                {cur} {aed(st.due)}
+              </p>
               <p className="text-xs text-muted-foreground">due of {aed(st.total)}</p>
             </div>
           </div>
@@ -724,7 +785,7 @@ export function PaymentForm({
         <Field label="Date">
           <Input type="date" value={date} min={after} onChange={(e) => setDate(e.target.value)} />
         </Field>
-        <Field label="Amount (AED)">
+        <Field label="Amount">
           <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
         <Field label="Paid by">
@@ -764,7 +825,7 @@ function CreditNoteForm({ company, books, invoice, change, onCancel, onDone }: {
   return (
     <div className="space-y-4">
       <p className="note note-info text-sm">
-        A credit note reduces this invoice: sales, the VAT due and what the client owes all fall by its amount. Up to AED {aed(st.total - st.credited)} can still be credited. Edit the lines to credit part of the invoice.
+        A credit note reduces this invoice: sales, the VAT due and what the client owes all fall by its amount. Up to {invoice.currency ?? company.baseCurrency ?? "AED"} {aed(st.total - st.credited)} can still be credited. Edit the lines to credit part of the invoice.
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Credit note number">
@@ -778,7 +839,9 @@ function CreditNoteForm({ company, books, invoice, change, onCancel, onDone }: {
         </Field>
       </div>
       <LinesEditor lines={lines} onChange={setLines} items={books.items} vatRegistered={vatRegistered} treatments={VAT_TREATMENTS.filter((t) => t.invoice)} />
-      <p className="text-right text-sm font-semibold">Credit AED {aed(total)}</p>
+      <p className="text-right text-sm font-semibold">
+        Credit {invoice.currency ?? company.baseCurrency ?? "AED"} {aed(total)}
+      </p>
       {error && <p className="text-sm text-[#b42318]">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onCancel}>
@@ -808,14 +871,15 @@ function CreditNoteForm({ company, books, invoice, change, onCancel, onDone }: {
 
 /* ---------------- customers and settings ---------------- */
 
-function Customers({ books, change, onShow }: { books: Books; change: Change; onShow: (id: string) => void }) {
+function Customers({ books, change, onShow, base }: { books: Books; change: Change; onShow: (id: string) => void; base: string }) {
   const [editing, setEditing] = useState<string | null>(null)
   const rows = books.clients
     .map((c) => {
       const mine = books.invoices.filter((i) => i.clientId === c.id)
       const t = mine.reduce((s, i) => {
         const st = invoiceStatus(books, i)
-        return { invoiced: s.invoiced + st.total - st.credited, paid: s.paid + st.paid, due: s.due + st.due }
+        const r = i.rate ?? 1
+        return { invoiced: s.invoiced + (st.total - st.credited) * r, paid: s.paid + st.paid * r, due: s.due + st.due * r }
       }, { invoiced: 0, paid: 0, due: 0 })
       return { c, count: mine.length, ...t }
     })
@@ -842,7 +906,7 @@ function Customers({ books, change, onShow }: { books: Books; change: Change; on
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <span className={cn("font-semibold tabular-nums", due > 0 && "text-[var(--cobalt)]")}>AED {aed(due)}</span>
+                <span className={cn("font-semibold tabular-nums", due > 0 && "text-[var(--cobalt)]")}>{base} {aed(due)}</span>
                 <Button size="sm" variant="outline" onClick={() => onShow(c.id)}>
                   Invoices
                 </Button>

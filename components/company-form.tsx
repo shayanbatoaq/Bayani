@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { CURRENCY_NAMES } from "@/lib/fx"
 import {
+  BASE_CURRENCIES,
   companyDraftSchema,
   ctDueDate,
   emirateFromAuthority,
@@ -86,6 +88,25 @@ export function CompanyForm({
           before saving.
         </p>
       )}
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="font-display text-lg font-semibold">Base currency</h3>
+          <p className="text-sm text-muted-foreground">The currency the books, data input and reports are kept in. Amounts in other currencies are converted into it at the rate shown.</p>
+        </div>
+        <div role="radiogroup" aria-label="Base currency" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {BASE_CURRENCIES.map((code) => (
+            <label key={code} className={cn("tile cursor-pointer px-4 py-3", draft.baseCurrency === code && "tile-active")}>
+              <input type="radio" name="baseCurrency" className="sr-only" checked={draft.baseCurrency === code} onChange={() => set("baseCurrency", code)} />
+              <span className="block font-display text-lg font-semibold">{code}</span>
+              <span className="text-xs text-muted-foreground">{CURRENCY_NAMES[code]}</span>
+            </label>
+          ))}
+        </div>
+        {initial.name && initial.baseCurrency !== draft.baseCurrency && (
+          <p className="note note-warning text-sm">Figures already saved are not converted. Change the base currency before entering data, or re-enter the figures in {draft.baseCurrency}.</p>
+        )}
+      </section>
 
       <Section title="Company">
         <Field id="name" label="Company name" error={errors.name} fromDoc={mark("name")} wide>

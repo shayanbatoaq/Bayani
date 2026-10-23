@@ -168,3 +168,23 @@ Paid by VISA ****1234`
   assert.deepEqual([f.net, f.vat, f.total], [800, 40, 840])
   assert.equal(f.payment, "card")
 })
+
+test("an invoice in another currency is booked in the base currency, with the exchange difference on payment", () => {
+  let books = run(emptyBooks(), { action: "party", kind: "client", party: client })
+  books = run(books, { action: "invoice", invoice: { id: "u1", number: "INV-2001", date: "2025-03-01", dueDate: "", clientId: "c1", lines: [line(1000)], notes: "", currency: "EUR", rate: 4.0, aedRate: 4.0 } })
+  const y = bookRows(books, FY(2025), true)
+  assert.equal(get(y, "Revenue"), -4000)
+  assert.equal(get(y, "VAT Control"), -200)
+  assert.equal(get(y, "Accounts Receivable"), 4200)
+  // Paid EUR 1,050 later, received as AED 4,305 on the statement (rate 4.1).
+  const statementLine = { id: "s:1", date: "2025-04-01", amount: 1050, description: "PALM GROVE TRADING EUR" }
+  const found = matchCandidates(books, { ...statementLine, amount: 4305, original: { amount: 1050, currency: "EUR" }, base: "AED" })
+  assert.equal(found[0]?.reason, "both")
+  books = run(books, { action: "payment", payment: { id: "p9", kind: "invoice", docId: "u1", date: "2025-04-01", amount: 1050, baseAmount: 4305, method: "bankLine", bankLine: statementLine, note: "" } })
+  assert.equal(invoiceStatus(books, books.invoices[0]).status, "paid")
+  const z = bookRows(books, FY(2025), true)
+  // The statement credits the receivable 4,305; the books add back 105 and book it as an exchange gain.
+  assert.equal(get(z, "Accounts Receivable"), 4305)
+  assert.equal(get(z, "Exchange Gain / (Loss)"), -105)
+  assert.equal(sum(z), 0)
+})

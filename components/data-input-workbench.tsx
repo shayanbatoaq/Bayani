@@ -50,6 +50,7 @@ import {
   type Side,
 } from "@/lib/ledger-heads"
 import type { LearnedRule } from "@/lib/bank-categories"
+import type { Company } from "@/lib/company"
 import { createLedgerRow, formatAmount, parseAmount, type LedgerRow } from "@/lib/trial-balance"
 import { cn } from "@/lib/utils"
 
@@ -123,7 +124,10 @@ export function DataInputWorkbench({
   onAddCustomHead,
   entryMode = "closing",
   statement,
+  currency = "AED",
 }: {
+  /** The company's base currency: every figure here is in it. */
+  currency?: string
   rows: LedgerRow[]
   onRowsChange: (rows: LedgerRow[]) => void
   customHeads: CustomHead[]
@@ -138,6 +142,7 @@ export function DataInputWorkbench({
     learned: LearnedRule[]
     onSaveRules: (rules: LearnedRule[]) => Promise<void>
     sessionKey: { companyId: string; year: number }
+    company?: Company
   }
 }) {
   const fileInput = useRef<HTMLInputElement>(null)
@@ -298,7 +303,7 @@ export function DataInputWorkbench({
         const at = next.findIndex((row) => row.scheduleKey === "ppe" && /depreciation|allowance|accumulated/i.test(row.ledgerName))
         if (at >= 0) next[at] = { ...next[at], amount: Math.round((next[at].amount - signed) * 100) / 100 }
         else next.push({ ...createLedgerRow({ ledgerName: "Allowance for Depreciation", amount: -signed }), scheduleKey: "ppe" })
-        paired = ` Accumulated depreciation (Allowance for Depreciation) increased by AED ${formatAmount(Math.abs(signed))} to match.`
+        paired = ` Accumulated depreciation (Allowance for Depreciation) increased by ${currency} ${formatAmount(Math.abs(signed))} to match.`
       }
       onRowsChange(next)
       setNotice(`${head} added.${paired}`)
@@ -340,8 +345,8 @@ export function DataInputWorkbench({
         onRowsChange([...rows, row])
         setNotice(
           asset
-            ? `${spread.head} added; depreciation of AED ${formatAmount(spread.amount / months)} a month is posted from Adjustments.`
-            : `AED ${formatAmount(spread.amount)} added as Prepaid Expense; AED ${formatAmount(spread.amount / months)} a month is released to ${spread.head} (see Adjustments).`
+            ? `${spread.head} added; depreciation of ${currency} ${formatAmount(spread.amount / months)} a month is posted from Adjustments.`
+            : `${currency} ${formatAmount(spread.amount)} added as Prepaid Expense; ${currency} ${formatAmount(spread.amount / months)} a month is released to ${spread.head} (see Adjustments).`
         )
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Could not create the schedule.")
@@ -523,6 +528,8 @@ export function DataInputWorkbench({
           learned={statement.learned}
           onSaveRules={statement.onSaveRules}
           sessionKey={statement.sessionKey}
+          company={statement.company}
+          baseCurrency={currency}
           customHeads={customHeads}
           onAddHead={onAddCustomHead}
           onApply={async (entries: StatementRows, summary, close) => {
@@ -571,7 +578,7 @@ export function DataInputWorkbench({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-amount">Amount (AED)</Label>
+              <Label htmlFor="manual-amount">Amount ({currency})</Label>
               <Input
                 ref={amountInput}
                 id="manual-amount"
@@ -615,8 +622,8 @@ export function DataInputWorkbench({
             <div className="space-y-3 rounded-xl border border-[var(--cobalt)]/40 bg-[var(--cobalt-wash)]/40 p-4">
               <p className="text-sm font-medium">
                 {spread.kind === "asset"
-                  ? `${spread.head} of AED ${formatAmount(spread.amount)}: over how many months will it be depreciated?`
-                  : `${spread.head} of AED ${formatAmount(spread.amount)}: expense it in full, or spread it over the months it covers?`}
+                  ? `${spread.head} of ${currency} ${formatAmount(spread.amount)}: over how many months will it be depreciated?`
+                  : `${spread.head} of ${currency} ${formatAmount(spread.amount)}: expense it in full, or spread it over the months it covers?`}
               </p>
               <SpreadChoice kind={spread.kind} months={spreadMonths} onChange={setSpreadMonths} amount={spread.amount} />
               {spreadMonths && (
@@ -734,7 +741,7 @@ export function DataInputWorkbench({
                 <TableRow>
                   <TableHead className="w-10 pl-4">#</TableHead>
                   <TableHead>Head</TableHead>
-                  <TableHead className="text-right">Amount (AED)</TableHead>
+                  <TableHead className="text-right">Amount ({currency})</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Statement</TableHead>
                   <TableHead>Category</TableHead>
@@ -856,7 +863,7 @@ export function DataInputWorkbench({
             <p className="flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-900">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               <span>
-                <span className="font-medium">Your figures are out by AED {formatAmount(Math.abs(difference))}.</span> Usually a
+                <span className="font-medium">Your figures are out by {currency} {formatAmount(Math.abs(difference))}.</span> Usually a
                 balance is missing or entered twice, or a head under Type is set the wrong way.
               </span>
             </p>

@@ -144,7 +144,7 @@ async function withBooks(owner: string, records: FinancialRecord[]): Promise<Fin
           clientId: companyId,
           clientName: company.name,
           year,
-          currency: "AED",
+          currency: company.baseCurrency ?? "AED",
           openingEquity: null,
           rows: [],
           // Built on the year before when there is one, so its balances carry forward.

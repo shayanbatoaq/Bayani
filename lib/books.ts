@@ -20,6 +20,12 @@ const id = z.string().min(1).max(60)
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date.")
 const money = z.number().finite().min(-1e12).max(1e12)
 const text = (max: number) => z.string().trim().max(max)
+/** A document in another currency: its currency, units of the base currency per unit, and AED per unit (shown on UAE tax invoices). */
+const currencyFields = {
+  currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+  rate: z.number().finite().positive().max(1e6).default(1),
+  aedRate: z.number().finite().positive().max(1e6).optional(),
+}
 
 export const partySchema = z.object({
   id,
@@ -70,6 +76,7 @@ export const invoiceSchema = z.object({
   lines: z.array(lineSchema).min(1, "Add at least one line.").max(200),
   notes: text(1000).default(""),
   createdAt: z.string().max(40).default(""),
+  ...currencyFields,
 })
 export type Invoice = z.infer<typeof invoiceSchema>
 
@@ -97,6 +104,7 @@ export const billSchema = z.object({
   net: money,
   vat: money,
   vatTreatment: vatTreatmentSchema.default("standard"),
+  ...currencyFields,
   payment: z.enum(["bank", "card", "cash", "credit"]).default("bank"),
   description: text(2000).default(""),
   attachment: attachmentSchema.nullable().default(null),
@@ -116,7 +124,10 @@ export const paymentSchema = z.object({
   kind: z.enum(["invoice", "bill"]),
   docId: id,
   date,
+  /** In the document's currency. */
   amount: z.number().finite().positive().max(1e12),
+  /** What was actually received or paid in the base currency, when it differs from amount × the document's rate (exchange difference). */
+  baseAmount: z.number().finite().positive().max(1e14).optional(),
   method: z.enum(["bankLine", "bank", "cash", "card"]),
   bankLine: bankLineRefSchema.nullable().default(null),
   note: text(300).default(""),
@@ -164,6 +175,8 @@ export const booksSchema = z.object({
   payments: z.array(paymentSchema).max(50000).default([]),
   schedules: z.array(scheduleSchema).max(2000).default([]),
   accruals: z.array(accrualSchema).max(2000).default([]),
+  /** VAT return each item belongs to when not its own period: a period id, or "none" while left out of every return. */
+  vatAssignments: z.record(z.string().max(80), z.string().max(40)).default({}),
   revision: z.number().int().nonnegative().default(0),
 })
 export type Books = z.infer<typeof booksSchema>
@@ -171,7 +184,8 @@ export const emptyBooks = (): Books => booksSchema.parse({})
 
 /* ---------------- amounts ---------------- */
 
-export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+/** To the fils, rounding halves up reliably (3856.125 → 3856.13, which binary floating point would round down). */
+export const round2 = (n: number) => (Math.sign(n) * Math.round(Number((Math.abs(n) * 100).toPrecision(15)))) / 100 || 0
 export function lineTotals(line: Pick<Line, "quantity" | "rate" | "vat">) {
   const net = round2(line.quantity * line.rate)
   const vat = line.vat === "reverseCharge" ? 0 : round2(net * vatRate(line.vat))
@@ -217,6 +231,8 @@ export const booksActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("deleteSchedule"), id }),
   z.object({ action: z.literal("accrual"), accrual: accrualSchema }),
   z.object({ action: z.literal("deleteAccrual"), id }),
+  /** period: a VAT period id, "none" to leave the item out of every return for now, null for its own period. */
+  z.object({ action: z.literal("vatAssign"), keys: z.array(z.string().max(80)).min(1).max(5000), period: z.string().max(40).nullable() }),
 ])
 export type BooksAction = z.infer<typeof booksActionSchema>
 
@@ -335,6 +351,12 @@ export function applyBooksAction(books: Books, a: BooksAction): Books {
       break
     case "deleteAccrual":
       next.accruals = next.accruals.filter((x) => x.id !== a.id)
+      break
+    case "vatAssign":
+      for (const key of a.keys) {
+        if (a.period === null) delete next.vatAssignments[key]
+        else next.vatAssignments[key] = a.period
+      }
       break
   }
   next.revision = books.revision + 1

@@ -43,6 +43,7 @@ export const CATEGORIES: Category[] = [
   { key: "receivable", label: "Customer invoice paid", ledgerName: "Accounts Receivable", scheduleKey: "receivables", group: "Balance sheet", hint: "Receipts linked to a Bayani invoice" },
   { key: "payable", label: "Supplier bill paid", ledgerName: "Accounts Payable", scheduleKey: "payables", group: "Balance sheet", hint: "Payments linked to a Bayani bill" },
   { key: "prepaid", label: "Prepaid (spread over months)", ledgerName: "Prepaid Expense", scheduleKey: "prepayments", group: "Balance sheet", hint: "Licence, rent or insurance paid in advance and released monthly" },
+  { key: "vatPaid", label: "VAT charged on a separate line", ledgerName: "VAT Control", scheduleKey: "taxReceivable", group: "Balance sheet", hint: "The VAT a bank or supplier debits as its own line (VAT on charges): recoverable input VAT" },
   { key: "deposits", label: "Deposits & advances paid", ledgerName: "Prepaid Expense", scheduleKey: "prepayments", group: "Balance sheet", hint: "Security deposits, advances to suppliers, prepaid rent" },
   { key: "capital", label: "Capital introduced", ledgerName: "Share Capital", scheduleKey: "capital", group: "Balance sheet", hint: "Owner paying in share capital" },
   { key: "owner", label: "Owner's account (in / drawings)", ledgerName: "Current Account", scheduleKey: "shareholder", group: "Balance sheet", hint: "Owner putting money in or taking money out" },
@@ -79,9 +80,9 @@ const RULES: Rule[] = [
   { test: /\b(loan|emi|instal?ment|murabaha|ijara|finance repayment)\b/i, category: "loan", direction: "out" },
   { test: /security deposit|refundable deposit/i, category: "deposits", direction: "out" },
   // Bank charges and the VAT on them
-  { test: /tax amount due|vat amount|tax on charges/i, category: "bankCharges", direction: "out", max: 1000 },
+  { test: /tax amount due|vat amount|tax on charges/i, category: "vatPaid", direction: "out", max: 1000 },
   // (size limits keep large payments whose narrative mentions "telex" or "charges" out of bank charges)
-  { test: /value added tax|vat on|^vat\b|\bvat$|- vat|vat\)|incl\. vat/i, category: "bankCharges", direction: "out", max: 1000 },
+  { test: /value added tax|vat on|^vat\b|\bvat$|- vat|vat\)/i, category: "vatPaid", direction: "out", max: 1000 },
   { test: /\b(bank|account|a\/c|transfer|trf|txn|transaction|service|remittance|swift|telex|ipp|atm|cheque|chq|card|digital banking|online banking|internet banking|corr|correspondent|correspondant|conf\.?|confirmation|membership|subscription|processing|handling|statement|ledger|maintenance|maintainance|min(imum)? bal(ance)?|balance requirement|outward|inward|instant payment|exchange|fx|covering|retail|monthly|annual|aani|uaefts)\b[\w\s.-]{0,14}?\b(charges?|chgs|fees?|commission|recovery|recoveries)\b|^charges?\b|charge collection|commission|telex recover|stamp duty|non maintenance of balance|min bal fee|premium -|corr\.?bank|charges collection/i, category: "bankCharges", direction: "out", max: 5000 },
   { test: /\binterest\b|profit paid|overdraft interest/i, category: "interest", direction: "out" },
   { test: /\binterest\b|profit (credit|distribution)|cashback|cash back/i, category: "otherIncome", direction: "in" },
@@ -120,7 +121,8 @@ export type CategorisedTransaction = BankTransaction & {
   source: "rule" | "learned" | "user" | "suggested"
 }
 
-export type LearnedRule = { pattern: string; category: string }
+/** What the user chose for a payer or payee, kept for every later statement and year. */
+export type LearnedRule = { pattern: string; category: string; vat?: "incl" | "none"; party?: string }
 
 /** A stable key for "the same counterparty": words without numbers, references or dates. */
 export function patternOf(description: string) {

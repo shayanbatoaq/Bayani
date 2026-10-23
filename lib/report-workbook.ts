@@ -49,6 +49,7 @@ export async function reportWorkbook(model: ReportModel) {
     const currency = ws.addRow(["", "", ...years.map(() => model.currency)])
     currency.font = { name: FONT, bold: true, size: 10 }
     currency.alignment = { horizontal: "center" }
+    if (model.currencyNote) ws.addRow([`Presented in ${model.currency}. ${model.currencyNote}`]).font = { name: FONT, italic: true, size: 8 }
   }
 
   const statementRows = (ws: ExcelJS.Worksheet, rows: Row[], withNote = true, indent = 0) => {

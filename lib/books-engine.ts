@@ -28,6 +28,7 @@ const ALLOWANCE = { ledgerName: "Allowance for Depreciation", scheduleKey: "ppe"
 const DEPRECIATION = { ledgerName: "Depreciation Expense", scheduleKey: "depreciation" }
 const ACCRUALS = { ledgerName: "Accrued Expenses", scheduleKey: "accruals" }
 const RETAINED = { ledgerName: "Retained Earnings", scheduleKey: "retained" }
+const EXCHANGE = { ledgerName: "Exchange Gain / (Loss)", scheduleKey: "exchange" }
 
 const leg = (head: { ledgerName: string; scheduleKey: string }, amount: number): Leg => ({ ...head, amount: round2(amount) })
 const BALANCE_SHEET = new Set([
@@ -78,25 +79,49 @@ export function bookEntries(books: Books): Entry[] {
   const entries: Entry[] = []
   const settle = (method: string) => (method === "cash" ? CASH : BANK)
 
+  // Documents in another currency are booked in the base currency at their own rate.
+  const rateOf = (kind: "invoice" | "bill", id: string) => (kind === "invoice" ? books.invoices.find((i) => i.id === id)?.rate : books.bills.find((b) => b.id === id)?.rate) ?? 1
   for (const invoice of books.invoices) {
     const t = documentTotals(invoice.lines)
-    entries.push({ date: invoice.date, source: `Invoice ${invoice.number}`, legs: [leg(AR, t.total), leg(SALES, -t.net), leg(VAT, -t.vat)] })
+    const r = invoice.rate ?? 1
+    // Each leg to the fils; sales take the rounding so the entry balances.
+    const total = round2(t.total * r)
+    const vat = round2(t.vat * r)
+    entries.push({ date: invoice.date, source: `Invoice ${invoice.number}`, legs: [leg(AR, total), leg(SALES, -(total - vat)), leg(VAT, -vat)] })
   }
   for (const note of books.creditNotes) {
     const t = documentTotals(note.lines)
-    entries.push({ date: note.date, source: `Credit note ${note.number}`, legs: [leg(AR, -t.total), leg(SALES, t.net), leg(VAT, t.vat)] })
+    const r = rateOf("invoice", note.invoiceId)
+    const total = round2(t.total * r)
+    const vat = round2(t.vat * r)
+    entries.push({ date: note.date, source: `Credit note ${note.number}`, legs: [leg(AR, -total), leg(SALES, total - vat), leg(VAT, vat)] })
   }
   for (const bill of books.bills) {
     const target = bill.treatment === "prepaid" && bill.months ? PREPAID : bill.treatment === "asset" ? ASSETS : { ledgerName: bill.ledgerName, scheduleKey: bill.scheduleKey }
     // Reverse charge: the supplier charges no VAT and the output and input VAT cancel out.
     const vat = bill.vatTreatment === "reverseCharge" ? 0 : bill.vat
-    entries.push({ date: bill.date, source: `Bill ${bill.number || bill.id}`, legs: [leg(target, bill.net), leg(VAT, vat), leg(AP, -round2(bill.net + vat))] })
+    const r = bill.rate ?? 1
+    const payable = round2(round2(bill.net + vat) * r)
+    const vatBase = round2(vat * r)
+    entries.push({ date: bill.date, source: `Bill ${bill.number || bill.id}`, legs: [leg(target, payable - vatBase), leg(VAT, vatBase), leg(AP, -payable)] })
   }
   for (const p of books.payments) {
-    // Statement lines are already in the bank figures, sorted to the receivable or payable.
-    if (p.method === "bankLine") continue
-    if (p.kind === "invoice") entries.push({ date: p.date, source: "Customer payment", legs: [leg(settle(p.method), p.amount), leg(AR, -p.amount)] })
-    else entries.push({ date: p.date, source: "Supplier payment", legs: [leg(AP, p.amount), leg(settle(p.method), -p.amount)] })
+    const atDocRate = round2(p.amount * rateOf(p.kind, p.docId))
+    const received = p.baseAmount ?? atDocRate
+    const difference = round2(received - atDocRate)
+    if (p.method === "bankLine") {
+      // The statement line is already in the bank figures against the receivable or payable at what was received;
+      // only the exchange difference against the document's rate is posted here.
+      if (difference !== 0)
+        entries.push(
+          p.kind === "invoice"
+            ? { date: p.date, source: "Exchange difference on a customer payment", legs: [leg(AR, difference), leg(EXCHANGE, -difference)] }
+            : { date: p.date, source: "Exchange difference on a supplier payment", legs: [leg(AP, -difference), leg(EXCHANGE, difference)] },
+        )
+      continue
+    }
+    if (p.kind === "invoice") entries.push({ date: p.date, source: "Customer payment", legs: [leg(settle(p.method), received), leg(AR, -atDocRate), leg(EXCHANGE, -difference)] })
+    else entries.push({ date: p.date, source: "Supplier payment", legs: [leg(AP, atDocRate), leg(settle(p.method), -received), leg(EXCHANGE, difference)] })
   }
   for (const s of books.schedules) {
     // A statement line paid for it: in a closing balance year the earlier statements are not in the
@@ -184,7 +209,7 @@ export function linkedLine(books: Books, line: { id: string; date: string; amoun
   return null
 }
 
-export type MatchCandidate = { kind: "invoice" | "bill"; id: string; number: string; party: string; due: number; date: string; reason: "amount" | "name" | "both" }
+export type MatchCandidate = { kind: "invoice" | "bill"; id: string; number: string; party: string; due: number; date: string; currency?: string; rate: number; reason: "amount" | "name" | "both" }
 
 const words = (s: string) =>
   s
@@ -194,7 +219,7 @@ const words = (s: string) =>
     .split(/\s+/)
     .filter((w) => w.length > 2)
 
-type Open = { kind: "invoice" | "bill"; id: string; number: string; party: string; partyWords: string[]; due: number; total: number; date: string }
+type Open = { kind: "invoice" | "bill"; id: string; number: string; party: string; partyWords: string[]; due: number; total: number; date: string; currency?: string; rate: number }
 const openCache = new WeakMap<Books, Open[]>()
 /** Invoices and bills not yet fully paid, worked out once per version of the books. */
 function openDocuments(books: Books): Open[] {
@@ -205,20 +230,25 @@ function openDocuments(books: Books): Open[] {
     const st = invoiceStatus(books, inv)
     if (st.due <= 0) continue
     const party = books.clients.find((c) => c.id === inv.clientId)?.name ?? ""
-    out.push({ kind: "invoice", id: inv.id, number: inv.number, party, partyWords: words(party), due: st.due, total: st.total, date: inv.date })
+    out.push({ kind: "invoice", id: inv.id, number: inv.number, party, partyWords: words(party), due: st.due, total: st.total, date: inv.date, currency: inv.currency, rate: inv.rate ?? 1 })
   }
   for (const bill of books.bills) {
     const st = billStatus(books, bill)
     if (st.due <= 0) continue
     const party = books.vendors.find((v) => v.id === bill.vendorId)?.name ?? ""
-    out.push({ kind: "bill", id: bill.id, number: bill.number, party, partyWords: words(party), due: st.due, total: st.total, date: bill.date })
+    out.push({ kind: "bill", id: bill.id, number: bill.number, party, partyWords: words(party), due: st.due, total: st.total, date: bill.date, currency: bill.currency, rate: bill.rate ?? 1 })
   }
   openCache.set(books, out)
   return out
 }
 
 /** Open invoices (money in) or bills (money out) a statement line could be paying. */
-export function matchCandidates(books: Books, line: { amount: number; description: string; date: string }): MatchCandidate[] {
+/**
+ * line.amount is in the base currency; original is the line in its own currency. A document in
+ * the line's currency is compared in that currency, others in the base currency (within 1%,
+ * since rates differ between the invoice date and the payment date).
+ */
+export function matchCandidates(books: Books, line: { amount: number; description: string; date: string; original?: { amount: number; currency: string }; base?: string }): MatchCandidate[] {
   const text = ` ${words(line.description).join(" ")} `
   const lower = line.description.toLowerCase()
   const kind = line.amount > 0 ? "invoice" : "bill"
@@ -226,9 +256,15 @@ export function matchCandidates(books: Books, line: { amount: number; descriptio
   const out: MatchCandidate[] = []
   for (const doc of openDocuments(books)) {
     if (doc.kind !== kind || doc.date > line.date) continue
-    const amount = Math.abs(doc.due - paid) < 0.01 || Math.abs(doc.total - paid) < 0.01
+    const docCurrency = doc.currency ?? line.base
+    const sameCurrency = line.original && docCurrency === line.original.currency
+    const amount = sameCurrency
+      ? Math.abs(doc.due - Math.abs(line.original!.amount)) < 0.01 || Math.abs(doc.total - Math.abs(line.original!.amount)) < 0.01
+      : doc.rate === 1
+        ? Math.abs(doc.due - paid) < 0.01 || Math.abs(doc.total - paid) < 0.01
+        : Math.abs(doc.due * doc.rate - paid) <= Math.max(0.01, paid * 0.01)
     const name = (doc.partyWords.length > 0 && doc.partyWords.slice(0, 2).every((x) => text.includes(` ${x} `))) || (doc.number.length > 3 && lower.includes(doc.number.toLowerCase()))
-    if (amount || name) out.push({ kind, id: doc.id, number: doc.number || "(no number)", party: doc.party, due: doc.due, date: doc.date, reason: amount && name ? "both" : amount ? "amount" : "name" })
+    if (amount || name) out.push({ kind, id: doc.id, number: doc.number || "(no number)", party: doc.party, due: doc.due, date: doc.date, currency: docCurrency, rate: doc.rate, reason: amount && name ? "both" : amount ? "amount" : "name" })
   }
   const rank = { both: 0, amount: 1, name: 2 }
   return out.sort((a, b) => rank[a.reason] - rank[b.reason] || b.date.localeCompare(a.date)).slice(0, 5)

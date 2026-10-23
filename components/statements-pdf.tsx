@@ -176,6 +176,7 @@ function Cover({ model }: { model: ReportModel }) {
         <Text style={[s.bold, { marginTop: 4, textAlign: "center" }]}>FINANCIAL STATEMENTS</Text>
         <Text style={[s.bold, { marginTop: 4, textAlign: "center" }]}>{model.periodEndText}</Text>
         <View style={{ width: 70, borderTopWidth: 1.2, marginTop: 18 }} />
+        {model.currencyNote ? <Text style={{ marginTop: 24, fontSize: 8.5, textAlign: "center", maxWidth: 380, lineHeight: 1.4 }}>Presented in {model.currency}. {model.currencyNote}</Text> : null}
       </View>
       <Text style={[s.bold, { position: "absolute", bottom: 70, left: 0, right: 0, textAlign: "center" }]}>Private &amp; Confidential</Text>
     </Page>

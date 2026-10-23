@@ -129,7 +129,7 @@ test("UAE categorisation rules, review for unclear lines, learned rules", () => 
   assert.equal(c("DEWA BILL PAYMENT", -800), "utilities")
   assert.equal(c("BUDGET RENT A CAR LLC", -900), "vehicle")
   assert.equal(c("Ejari rent cheque 3 of 4", -25000), "rent")
-  assert.equal(c("Value Added Tax - Output", -0.25), "bankCharges")
+  assert.equal(c("Value Added Tax - Output", -0.25), "vatPaid")
   assert.equal(c("FEDERAL TAX AUTHORITY VAT PAYMENT", -4000), "tax")
   assert.equal(c("MINISTRY OF HUMAN RESOURCES", -450), "govFees")
   assert.equal(c("Transfer to Rami Haddad", -3000), "review")
@@ -170,7 +170,7 @@ test("statements issued page by page with their own opening balance stay one acc
   assert.equal(accounts.length, 1)
   assert.equal(accounts[0].transactions.length, 3)
   assert.equal(accounts[0].closing, 1995)
-  assert.equal(categorise(accounts[0].transactions[1]).category, "bankCharges")
+  assert.equal(categorise(accounts[0].transactions[1]).category, "vatPaid")
 })
 
 test("a payment and its reversal cancel out; own heads can be categories", () => {

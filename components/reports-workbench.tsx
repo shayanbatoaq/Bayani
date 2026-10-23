@@ -22,6 +22,7 @@ export function ReportsWorkbench() {
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null)
   const [error, setError] = useState("")
+  const [currency, setCurrency] = useState("")
 
   useEffect(() => {
     Promise.all([
@@ -46,12 +47,14 @@ export function ReportsWorkbench() {
       .finally(() => setLoading(false))
   }, [params])
 
-  const modelKey = companyId && year ? `${companyId}:${year}` : ""
+  const companyBase = companies.find((c) => c.id === companyId)?.baseCurrency ?? "AED"
+  const shown = currency || companyBase
+  const modelKey = companyId && year ? `${companyId}:${year}:${shown}` : ""
   useEffect(() => {
     if (!modelKey) return
-    const [id, y] = modelKey.split(":")
+    const [id, y, cur] = modelKey.split(":")
     const controller = new AbortController()
-    fetch(`/api/reports/model?companyId=${id}&year=${y}`, { signal: controller.signal, cache: "no-store" })
+    fetch(`/api/reports/model?companyId=${id}&year=${y}&currency=${cur}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         const data = await response.json()
         if (!response.ok) throw new Error(data.error)
@@ -79,12 +82,12 @@ export function ReportsWorkbench() {
     setDownloading(kind)
     setError("")
     try {
-      const response = await fetch(`/api/reports/${kind === "pdf" ? "statements" : "excel"}?companyId=${companyId}&year=${year}`)
+      const response = await fetch(`/api/reports/${kind === "pdf" ? "statements" : "excel"}?companyId=${companyId}&year=${year}&currency=${shown}`)
       if (!response.ok) throw new Error((await response.json()).error)
       const url = URL.createObjectURL(await response.blob())
       const anchor = document.createElement("a")
       anchor.href = url
-      anchor.download = `${(company?.name ?? "Company").replace(/[^A-Za-z0-9]+/g, "-")}-Financial-Statements-${year}.${kind === "pdf" ? "pdf" : "xlsx"}`
+      anchor.download = `${(company?.name ?? "Company").replace(/[^A-Za-z0-9]+/g, "-")}-Financial-Statements-${year}${shown !== companyBase ? `-${shown}` : ""}.${kind === "pdf" ? "pdf" : "xlsx"}`
       anchor.click()
       setTimeout(() => URL.revokeObjectURL(url), 30_000)
     } catch (cause) {
@@ -156,7 +159,17 @@ export function ReportsWorkbench() {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <p className="text-xs text-muted-foreground">Currency</p>
+            <div role="tablist" aria-label="Report currency" className="track mt-1">
+              {[...new Set([companyBase, "AED", "USD", "EUR", "GBP"])].map((c) => (
+                <button key={c} type="button" role="tab" aria-selected={c === shown} className="track-item" onClick={() => setCurrency(c)}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
           <Button onClick={() => download("pdf")} disabled={Boolean(downloading) || !model || unmapped > 0}>
             {downloading === "pdf" ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
             {downloading === "pdf" ? "Preparing PDF..." : "Download PDF"}

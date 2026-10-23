@@ -118,3 +118,31 @@ export async function readDocument(file: File, onProgress?: (p: ReadProgress) =>
   if (/^image\//.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name)) return readImage(file, onProgress)
   throw new Error(`${file.name}: upload a PDF, PNG, JPG or WEBP file.`)
 }
+
+/** The first pages of a PDF as JPEG images, for a reading that looks at the layout itself. */
+export async function pdfPageImages(file: File, maxPages = 2, width = 1400) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString()
+  const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), useSystemFonts: true })
+  try {
+    const pdf = await task.promise
+    const images: string[] = []
+    for (let n = 1; n <= Math.min(pdf.numPages, maxPages); n++) {
+      const page = await pdf.getPage(n)
+      const base = page.getViewport({ scale: 1 })
+      const viewport = page.getViewport({ scale: width / base.width })
+      const canvas = document.createElement("canvas")
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      const ctx = canvas.getContext("2d")!
+      ctx.fillStyle = "#fff"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: ctx, viewport, canvas } as never).promise
+      images.push(canvas.toDataURL("image/jpeg", 0.8))
+      page.cleanup()
+    }
+    return images
+  } finally {
+    await task.destroy()
+  }
+}

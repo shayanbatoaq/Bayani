@@ -101,7 +101,7 @@ export function ValuationWorkbench() {
       </div>
       {error && <p className="note note-alert text-sm">{error}</p>}
 
-      <Hero v={v} />
+      <Hero v={v} currency={company.baseCurrency ?? "AED"} />
 
       <div className="grid gap-5 xl:grid-cols-5">
         <section className="panel p-5 xl:col-span-3">
@@ -219,7 +219,7 @@ function Title({ icon: Icon, title, hint }: { icon: typeof Gauge; title: string;
   )
 }
 
-function Hero({ v }: { v: Valuation }) {
+function Hero({ v, currency }: { v: Valuation; currency: string }) {
   const lead = [...v.methods].sort((a, b) => b.weight - a.weight)[0]
   const span = Math.max(1, v.high - v.low)
   return (
@@ -228,7 +228,7 @@ function Hero({ v }: { v: Valuation }) {
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/55">Indicative equity value · {v.year}</p>
           <p className="mt-2 font-display text-4xl font-semibold tabular-nums sm:text-5xl">
-            <span className="mr-2 text-lg font-normal text-white/60">AED</span>
+            <span className="mr-2 text-lg font-normal text-white/60">{currency}</span>
             {aed(v.value)}
           </p>
           <div className="mt-4 max-w-md">
