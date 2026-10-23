@@ -811,10 +811,10 @@ export function BankStatementImport({
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
                     saveState === "error"
-                      ? "bg-[#fdecec] text-[#b42318]"
+                      ? "bg-[var(--danger-subtle)] text-[var(--danger)]"
                       : saveState === "saving"
                         ? "bg-[var(--cobalt-wash)] text-[var(--cobalt)]"
-                        : "bg-[var(--lagoon-wash)] text-[#0d7d73]",
+                        : "bg-[var(--lagoon-wash)] text-[var(--evergreen)]",
                   )}
                 >
                   {saveState === "saving" ? (
@@ -958,10 +958,10 @@ export function BankStatementImport({
                         <span className="text-muted-foreground">
                           1 {c} = {rateAt(c, period.start).toLocaleString("en-US", { maximumFractionDigits: 6 })} {baseCurrency} on {formatLongDate(period.start)} ·{" "}
                           {rateAt(c, period.end).toLocaleString("en-US", { maximumFractionDigits: 6 })} on {formatLongDate(period.end)}
-                          {sr.source === "fallback" ? <span className="ml-1 font-medium text-[#b42318]">(approximate: check or type the rate)</span> : sr.source === "peg" ? " (fixed peg)" : " (ECB)"}
+                          {sr.source === "fallback" ? <span className="ml-1 font-medium text-[var(--danger)]">(approximate: check or type the rate)</span> : sr.source === "peg" ? " (fixed peg)" : " (ECB)"}
                         </span>
                       ) : (
-                        <span className="font-medium text-[#b42318]">No rate available: type the rate to use</span>
+                        <span className="font-medium text-[var(--danger)]">No rate available: type the rate to use</span>
                       )}
                       <label className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">Own rate</span>
@@ -993,8 +993,8 @@ export function BankStatementImport({
           {inPeriod.length > 0 && (
             <>
               <div className="grid gap-3 sm:grid-cols-3">
-                <Stat label="Money in" value={moneyIn} tone="text-[#0d7d73]" />
-                <Stat label="Money out" value={moneyOut} tone="text-[#b42318]" />
+                <Stat label="Money in" value={moneyIn} tone="text-[var(--evergreen)]" />
+                <Stat label="Money out" value={moneyOut} tone="text-[var(--danger)]" />
                 <div className={cn("panel p-4", reviewCount ? "ring-1 ring-[var(--saffron)]" : "")}>
                   <p className="text-xs text-muted-foreground">Lines to review</p>
                   <p className="mt-1 font-display text-xl font-semibold">{reviewCount}</p>
@@ -1314,7 +1314,7 @@ function MatchPanel({
                 <span className="line-clamp-1 break-words">{t.description}</span>
                 <span className="text-[11px] text-muted-foreground">{formatLongDate(t.date)}</span>
               </span>
-              <span className={cn("font-semibold tabular-nums", t.amount < 0 ? "text-[#b42318]" : "text-[#0d7d73]")}>{money(t.amount)}</span>
+              <span className={cn("font-semibold tabular-nums", t.amount < 0 ? "text-[var(--danger)]" : "text-[var(--evergreen)]")}>{money(t.amount)}</span>
               <select
                 aria-label="Invoice or bill"
                 className="h-9 min-w-0 rounded-lg border bg-white px-2 text-sm"
@@ -1395,7 +1395,7 @@ function SpreadPrompt({
             <input inputMode="decimal" className="mt-1 h-9 w-40 rounded-lg border px-2" value={value} onChange={(e) => setValue(e.target.value)} />
           </label>
         )}
-        {error && <p className="text-[#b42318]">{error}</p>}
+        {error && <p className="text-[var(--danger)]">{error}</p>}
         <div className="flex flex-wrap justify-end gap-2">
           {prompt.kind === "prepaid" && (
             <Button variant="outline" onClick={onFull}>
@@ -1446,13 +1446,13 @@ function FileRow({ file, onPassword, onRemove }: { file: Loaded; onPassword: (pa
         </span>
       )}
       {file.status === "done" && file.parsed && (
-        <span className={cn("text-xs", file.parsed.accounts.length ? "text-[#0d7d73]" : "text-[#b42318]")}>
+        <span className={cn("text-xs", file.parsed.accounts.length ? "text-[var(--evergreen)]" : "text-[var(--danger)]")}>
           {file.parsed.accounts.length
             ? `${file.parsed.bank} · ${file.parsed.accounts.reduce((t, a) => t + a.transactions.length, 0)} lines`
             : (file.parsed.warnings[0] ?? "No transactions found")}
         </span>
       )}
-      {file.status === "error" && <span className="text-xs text-[#b42318]">{file.error}</span>}
+      {file.status === "error" && <span className="text-xs text-[var(--danger)]">{file.error}</span>}
       {file.status === "password" && (
         <form
           className="flex items-center gap-2"
@@ -1474,7 +1474,7 @@ function FileRow({ file, onPassword, onRemove }: { file: Loaded; onPassword: (pa
           <Button type="submit" size="sm">
             Open
           </Button>
-          {file.error && <span className="text-xs text-[#b42318]">{file.error}</span>}
+          {file.error && <span className="text-xs text-[var(--danger)]">{file.error}</span>}
         </form>
       )}
       <button type="button" onClick={onRemove} className="rounded-lg p-1 text-muted-foreground hover:bg-secondary" aria-label={`Remove ${file.name}`}>
@@ -1506,9 +1506,9 @@ function AccountCard({
   const statedOk = account.statedClosing === null || Math.abs(account.statedClosing - (account.closing ?? 0)) < 0.02
   const ok = account.mismatches === 0 && statedOk && gaps.length === 0
   return (
-    <div className={cn("min-w-0 rounded-2xl border p-4", ok ? "bg-[var(--lagoon-wash)]/50" : "bg-[#fdecec]/60")}>
+    <div className={cn("min-w-0 rounded-2xl border p-4", ok ? "bg-[var(--lagoon-wash)]/50" : "bg-[var(--danger-subtle)]/60")}>
       <div className="flex items-start gap-3">
-        <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl text-white", ok ? "bg-[var(--lagoon)]" : "bg-[#e5484d]")}>
+        <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl text-white", ok ? "bg-[var(--lagoon)]" : "bg-[var(--danger)]")}>
           <Landmark className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
@@ -1535,7 +1535,7 @@ function AccountCard({
           <dd className="font-semibold tabular-nums">{count}</dd>
         </div>
       </dl>
-      <p className={cn("mt-3 flex items-start gap-1.5 text-xs", ok ? "text-[#0b4d47]" : "text-[#7a1c14]")}>
+      <p className={cn("mt-3 flex items-start gap-1.5 text-xs", ok ? "text-[var(--evergreen-hover)]" : "text-[var(--danger-text)]")}>
         {ok ? <CheckCircle2 className="mt-px size-3.5 shrink-0" /> : <AlertTriangle className="mt-px size-3.5 shrink-0" />}
         {ok
           ? `Every line agrees with the running balance${account.statedClosing !== null ? " and the closing balance printed on the statement" : ""}.`
@@ -1546,7 +1546,7 @@ function AccountCard({
               : `The closing balance on the statement (${money(account.statedClosing ?? 0)}) differs from the lines read (${money(account.closing ?? 0)}).`}
       </p>
       {gaps.length > 0 && (
-        <ul className="mt-2 space-y-1 text-xs text-[#7a1c14]">
+        <ul className="mt-2 space-y-1 text-xs text-[var(--danger-text)]">
           {gaps.map((g) => (
             <li key={`${g.after}-${g.before}`}>
               Closed {money(g.closed)} on {formatLongDate(g.after)}, next opens {money(g.opened)} on {formatLongDate(g.before)}
@@ -1608,12 +1608,12 @@ function TransactionRow({
         <span className="line-clamp-2 break-words">{t.description}</span>
         <span className="text-[11px] text-muted-foreground">
           {t.bank} · {t.currency}
-          {t.issue ? <span className="ml-1 text-[#b42318]">· {t.issue}</span> : null}
+          {t.issue ? <span className="ml-1 text-[var(--danger)]">· {t.issue}</span> : null}
         </span>
       </span>
-      <span className={cn("font-semibold tabular-nums sm:text-right", t.amount < 0 ? "text-[#b42318]" : "text-[#0d7d73]")}>{money(t.amount)}</span>
+      <span className={cn("font-semibold tabular-nums sm:text-right", t.amount < 0 ? "text-[var(--danger)]" : "text-[var(--evergreen)]")}>{money(t.amount)}</span>
       {link ? (
-        <span className="flex items-center justify-between gap-2 rounded-lg border border-[var(--lagoon)]/40 bg-[var(--lagoon-wash)] px-2.5 py-1.5 text-xs text-[#0b4d47]">
+        <span className="flex items-center justify-between gap-2 rounded-lg border border-[var(--lagoon)]/40 bg-[var(--lagoon-wash)] px-2.5 py-1.5 text-xs text-[var(--evergreen-hover)]">
           <a href={link.href} className="min-w-0 truncate font-medium hover:underline">
             <Link2 className="mr-1 inline size-3.5" />
             {link.label}
@@ -1650,7 +1650,7 @@ function TransactionRow({
           )}
           {vatRegistered && !link && !vatAuto && (
             <span className={cn("inline-flex items-center gap-1 rounded-full border p-0.5", vat === null && "border-[var(--saffron)] bg-[var(--saffron-wash)]")} role="group" aria-label={`VAT for ${t.description}`}>
-              {vat === null && <span className="px-1.5 font-medium text-[#6b4500]">VAT?</span>}
+              {vat === null && <span className="px-1.5 font-medium text-[var(--warning-text)]">VAT?</span>}
               {(
                 [
                   ["incl", "Includes 5% VAT"],
@@ -1730,7 +1730,7 @@ function TransactionRow({
           <p className="basis-full text-[11px] text-muted-foreground">
             The head is added to your trial balance list and used for this line and every line from the same payer or payee.
           </p>
-          {error && <p className="basis-full text-xs text-[#b42318]">{error}</p>}
+          {error && <p className="basis-full text-xs text-[var(--danger)]">{error}</p>}
         </form>
       )}
     </li>

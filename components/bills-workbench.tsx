@@ -301,7 +301,7 @@ function Tile({ label, value, alert, currency }: { label: string; value: number;
   return (
     <div className="panel p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 font-display text-xl font-semibold tabular-nums", alert && "text-[#b42318]")}>
+      <p className={cn("mt-1 font-display text-xl font-semibold tabular-nums", alert && "text-[var(--danger)]")}>
         {currency} {aed(value)}
       </p>
     </div>
@@ -385,9 +385,9 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
 
   const tag = (key: string) =>
     from(key) ? (
-      <span className="ml-1 rounded bg-[var(--lagoon-wash)] px-1.5 py-0.5 text-[10px] font-semibold text-[#0b6b62]">{from(key) === "AI" ? "read by AI" : "read"}</span>
+      <span className="ml-1 rounded bg-[var(--lagoon-wash)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--evergreen)]">{from(key) === "AI" ? "read by AI" : "read"}</span>
     ) : missing(key as keyof BillFields) ? (
-      <span className="ml-1 rounded bg-[var(--saffron-wash)] px-1.5 py-0.5 text-[10px] font-semibold text-[#6b4500]">not found, enter it</span>
+      <span className="ml-1 rounded bg-[var(--saffron-wash)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--warning-text)]">not found, enter it</span>
     ) : null
 
   return (
@@ -553,7 +553,7 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
               {fx.currency} {aed(total)}
             </p>
             {fx.currency !== base && <p className="text-xs text-muted-foreground">= {base} {aed(total * fx.rate)}</p>}
-            {f.total !== undefined && Math.abs(f.total - total) > 0.05 && <p className="text-xs text-[#b42318]">Document total {aed(f.total)}</p>}
+            {f.total !== undefined && Math.abs(f.total - total) > 0.05 && <p className="text-xs text-[var(--danger)]">Document total {aed(f.total)}</p>}
           </div>
         </div>
         {treatmentVat === "reverseCharge" && <p className="text-xs text-muted-foreground">Reverse charge: you account for the 5% VAT yourself and reclaim it in the same return, so the supplier is paid the amount before VAT.</p>}
@@ -567,7 +567,7 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
             <span>{changed ? "The amounts differ from what Bayani read on the document. " : ""}I have checked the amount before VAT, the VAT and the total against the document.</span>
           </label>
         )}
-        {error && <p className="text-sm text-[#b42318]">{error}</p>}
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button onClick={() => void save()} disabled={saving || addingVendor}>
             {saving && <Loader2 className="size-4 animate-spin" />}
@@ -596,7 +596,7 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
             {(["supplier", "vendorTrn", "date", "number", "net", "vat", "total", "payment", "description"] as const).map((key) => (
               <p key={key} className="flex justify-between gap-2 border-b py-1 last:border-0">
                 <span className="text-muted-foreground">{{ supplier: "Supplier", vendorTrn: "TRN", date: "Date", number: "Number", net: "Before VAT", vat: "VAT", total: "Total", payment: "Paid by", description: "Details" }[key]}</span>
-                <span className="truncate text-right">{f[key] === undefined ? <span className="text-[#6b4500]">not found</span> : typeof f[key] === "number" ? aed(f[key] as number) : String(f[key])}</span>
+                <span className="truncate text-right">{f[key] === undefined ? <span className="text-[var(--warning-text)]">not found</span> : typeof f[key] === "number" ? aed(f[key] as number) : String(f[key])}</span>
               </p>
             ))}
           </div>
@@ -682,7 +682,7 @@ function BillView({ company, books, change, bill, onClose, onEdit }: { company: 
             <Button
               size="sm"
               variant="ghost"
-              className="text-[#b42318]"
+              className="text-[var(--danger)]"
               onClick={async () => {
                 if (!window.confirm("Delete this bill and its document? The expense, VAT and payable are removed from your reports.")) return
                 try {

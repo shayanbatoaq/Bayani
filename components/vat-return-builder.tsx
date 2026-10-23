@@ -142,7 +142,7 @@ export function VatReturnBuilder({ company, slot, periods, onUse }: { company: C
                 <td className="px-2 py-1.5 text-muted-foreground">{i.source}</td>
                 <td className="max-w-72 truncate px-2 py-1.5" title={i.description}>
                   {i.description}
-                  {i.noAedRate && <span className="ml-1 text-xs text-[#b42318]">(no AED rate)</span>}
+                  {i.noAedRate && <span className="ml-1 text-xs text-[var(--danger)]">(no AED rate)</span>}
                   {mode === "here" && naturalPeriod(i) !== slot.id && <span className="ml-1 text-xs text-muted-foreground">(brought into this return)</span>}
                 </td>
                 <td className="px-2 py-1.5">{i.box}</td>
@@ -238,7 +238,7 @@ export function VatReturnBuilder({ company, slot, periods, onUse }: { company: C
               Use these figures for the return <ArrowRight className="size-4" />
             </Button>
             {neverIncluded.length > 0 && (
-              <span className={cn("text-sm", neverIncluded.length ? "text-[#6b4500]" : "text-muted-foreground")}>
+              <span className={cn("text-sm", neverIncluded.length ? "text-[var(--warning-text)]" : "text-muted-foreground")}>
                 {neverIncluded.length} item{neverIncluded.length === 1 ? "" : "s"} marked with VAT are not in any return yet.
               </span>
             )}

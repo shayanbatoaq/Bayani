@@ -7,6 +7,7 @@ import { BadgeCheck, Building2, Calculator, ChevronDown, FileDown, Gauge, Info, 
 import { CompanyPicker, Loading, NoData, useTaxData } from "@/components/tax-workbench"
 import { Button } from "@/components/ui/button"
 import { GENERAL, INDUSTRIES, valueBusiness, type Method, type Valuation } from "@/lib/valuation"
+import { brand } from "@/lib/brand"
 import { cn } from "@/lib/utils"
 
 const aed = (n: number) => (Math.round(n) || 0).toLocaleString("en-US")
@@ -18,7 +19,7 @@ const compact = (n: number) => {
   return `${sign}${Math.round(a)}`
 }
 const pct = (n: number, d = 1) => `${(n * 100).toFixed(d)}%`
-const APPROACH_COLOR: Record<Method["approach"], string> = { Income: "#2f5bff", Market: "#12b5a6", Asset: "#e89a00" }
+const APPROACH_COLOR: Record<Method["approach"], string> = { Income: brand.evergreen, Market: brand.info, Asset: brand.gold }
 
 export function ValuationWorkbench() {
   const data = useTaxData()
@@ -223,26 +224,26 @@ function Hero({ v, currency }: { v: Valuation; currency: string }) {
   const lead = [...v.methods].sort((a, b) => b.weight - a.weight)[0]
   const span = Math.max(1, v.high - v.low)
   return (
-    <section className="insight-panel overflow-hidden p-5 text-white sm:p-7">
+    <section className="insight-panel overflow-hidden p-5 sm:p-6">
       <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr] lg:items-center">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/55">Indicative equity value · {v.year}</p>
-          <p className="mt-2 font-display text-4xl font-semibold tabular-nums sm:text-5xl">
-            <span className="mr-2 text-lg font-normal text-white/60">{currency}</span>
+          <p className="text-[13px] font-medium text-subtle-foreground">Indicative equity value · {v.year}</p>
+          <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.025em] tabular-nums sm:text-[2.75rem]">
+            <span className="mr-2 text-lg font-semibold tracking-normal text-subtle-foreground">{currency}</span>
             {aed(v.value)}
           </p>
           <div className="mt-4 max-w-md">
-            <div className="relative h-2.5 rounded-full bg-gradient-to-r from-[#12b5a6] via-[#2f5bff] to-[#7c5cff]">
-              <span className="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[var(--ink)]" style={{ left: `${((v.value - v.low) / span) * 100}%` }} />
+            <div className="relative h-1.5 rounded-full bg-[var(--evergreen-subtle)]">
+              <span className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-xs" style={{ left: `${((v.value - v.low) / span) * 100}%` }} />
             </div>
-            <div className="mt-1.5 flex justify-between text-xs text-white/60 tabular-nums">
+            <div className="mt-1.5 flex justify-between text-xs text-muted-foreground tabular-nums">
               <span>{compact(v.low)}</span>
               <span>{compact(v.high)}</span>
             </div>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Stat label="Confidence" value={v.confidence} tone={v.confidence === "High" ? "#5fe0d4" : v.confidence === "Medium" ? "#ffc861" : "#ff9a9d"} />
+          <Stat label="Confidence" value={v.confidence} tone={v.confidence === "High" ? brand.evergreen : v.confidence === "Medium" ? brand.warning : brand.danger} />
           <Stat label="Industry" value={v.industry.label} />
           <Stat label="Lead method" value={lead ? `${lead.name} (${pct(lead.weight, 0)})` : "n/a"} />
           <Stat label="Implied EV / EBITDA" value={v.maintainableEbitda > 0 ? `${((v.value - v.netCash) / v.maintainableEbitda).toFixed(1)}x` : "n/a"} />
@@ -254,8 +255,8 @@ function Hero({ v, currency }: { v: Valuation; currency: string }) {
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="rounded-2xl bg-white/[0.06] p-3 ring-1 ring-white/10">
-      <p className="text-[11px] text-white/55">{label}</p>
+    <div className="rounded-lg border bg-[var(--surface-subtle)] p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-semibold leading-snug" style={tone ? { color: tone } : undefined}>
         {value}
       </p>
@@ -279,7 +280,8 @@ function FootballField({ v }: { v: Valuation }) {
             <div className="mb-1 flex items-baseline justify-between gap-2 text-sm">
               <span className="font-medium">
                 {m.name}
-                <span className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white" style={{ background: APPROACH_COLOR[m.approach] }}>
+                <span className="ml-2 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  <span className="size-1.5 rounded-full" style={{ background: APPROACH_COLOR[m.approach] }} />
                   {m.approach}
                 </span>
               </span>
@@ -290,7 +292,7 @@ function FootballField({ v }: { v: Valuation }) {
             <div className="relative h-4 rounded-full bg-secondary">
               <div className="absolute top-0 h-full rounded-full" style={{ left: pos(m.low), width: `${Math.max(1.5, at(m.high) - at(m.low))}%`, background: `${APPROACH_COLOR[m.approach]}55` }} />
               {beyond ? (
-                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-semibold" style={{ color: APPROACH_COLOR[m.approach] }}>
+                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-muted-foreground">
                   off scale →
                 </span>
               ) : (
@@ -302,9 +304,9 @@ function FootballField({ v }: { v: Valuation }) {
       })}
       <div className="pt-1">
         <p className="mb-1 text-sm font-semibold">Weighted conclusion</p>
-        <div className="relative h-8 rounded-xl bg-[var(--ink)]">
-          <div className="absolute inset-y-1 rounded-lg bg-white/15" style={{ left: pos(v.low), width: `${at(v.high) - at(v.low)}%` }} />
-          <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[var(--ink)] tabular-nums" style={{ left: pos(v.value) }}>
+        <div className="relative h-8 rounded-lg bg-secondary">
+          <div className="absolute inset-y-1 rounded-md bg-[var(--evergreen-subtle)] ring-1 ring-[var(--evergreen)]/25" style={{ left: pos(v.low), width: `${at(v.high) - at(v.low)}%` }} />
+          <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground tabular-nums" style={{ left: pos(v.value) }}>
             {compact(v.value)}
           </span>
         </div>
@@ -333,7 +335,7 @@ function MethodCard({ m, open, onToggle }: { m: Method; open: boolean; onToggle:
   return (
     <div className={cn("panel overflow-hidden", !m.weight && "opacity-80")}>
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-4 p-4 text-left">
-        <span className="grid size-10 shrink-0 place-items-center rounded-xl text-white" style={{ background: APPROACH_COLOR[m.approach] }}>
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg border bg-[var(--surface-subtle)] text-muted-foreground">
           {m.approach === "Asset" ? <Building2 className="size-5" /> : m.approach === "Market" ? <Gauge className="size-5" /> : <TrendingUp className="size-5" />}
         </span>
         <div className="min-w-0 flex-1">
@@ -378,13 +380,13 @@ function Projection({ v }: { v: Valuation }) {
       <div ref={ref} className="h-64 w-full">
         {width > 0 && (
           <ComposedChart width={width} height={256} data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e3e8f2" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={brand.hairline} vertical={false} />
             <XAxis dataKey="year" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={compact} width={48} />
             <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} formatter={(value) => Number(value).toLocaleString("en-US")} />
-            <Bar dataKey="EBITDA" fill="#2f5bff" radius={[6, 6, 0, 0]} maxBarSize={34} />
-            <Bar dataKey="Free cash flow" fill="#12b5a6" radius={[6, 6, 0, 0]} maxBarSize={34} />
-            <Line dataKey="Present value" stroke="#e89a00" strokeWidth={3} dot={{ r: 4, fill: "#e89a00" }} type="monotone" />
+            <Bar dataKey="EBITDA" fill={brand.evergreen} radius={[6, 6, 0, 0]} maxBarSize={34} />
+            <Bar dataKey="Free cash flow" fill={brand.mint} radius={[6, 6, 0, 0]} maxBarSize={34} />
+            <Line dataKey="Present value" stroke={brand.info} strokeWidth={2} dot={{ r: 3, fill: brand.info }} type="monotone" />
           </ComposedChart>
         )}
       </div>

@@ -83,7 +83,7 @@ export function AuthPanel({ mode }: { mode: "signup" | "login" }) {
 
   if (sentTo)
     return (
-      <div className="w-full max-w-md space-y-4 rounded-xl border bg-white p-8 text-center shadow-sm">
+      <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-8 text-center">
         <MailCheck className="mx-auto size-10 text-emerald-700" />
         <h2 className="text-xl font-semibold">Check your email</h2>
         <p className="text-sm leading-6 text-muted-foreground">
@@ -97,7 +97,7 @@ export function AuthPanel({ mode }: { mode: "signup" | "login" }) {
     )
 
   return (
-    <div className="w-full max-w-md rounded-xl border bg-white p-6 shadow-sm sm:p-8">
+    <div className="w-full max-w-md rounded-xl border bg-card p-6 sm:p-8">
       <h2 className="text-2xl font-semibold">
         {mode === "signup" ? "Create your account" : "Log in"}
       </h2>
@@ -123,7 +123,7 @@ export function AuthPanel({ mode }: { mode: "signup" | "login" }) {
         ))}
       </div>
 
-      <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
+      <div className="my-6 flex items-center gap-3 text-xs text-subtle-foreground">
         <span className="h-px flex-1 bg-border" />
         or with email
         <span className="h-px flex-1 bg-border" />

@@ -35,7 +35,7 @@ export function ReportView({ model, records }: { model: ReportModel; records: Fi
   const [tab, setTab] = useState<Tab>("snap")
   return (
     <div className="space-y-5">
-      {model.currencyNote && <p className="rounded-lg border-l-4 border-sky-500 bg-sky-50 px-4 py-2 text-sm text-sky-900">{model.currencyNote}</p>}
+      {model.currencyNote && <p className="note note-info text-sm">{model.currencyNote}</p>}
       <div role="tablist" aria-label="Report sections" className="track">
         {TABS.map((item) => (
           <button key={item.key} role="tab" type="button" aria-selected={tab === item.key} onClick={() => setTab(item.key)} className="track-item">
@@ -85,7 +85,7 @@ function Change({ current, prior }: { current: number | null; prior: number | nu
   if (Math.abs(change) < 0.0005) return <span className="text-xs text-muted-foreground">0%</span>
   const up = change > 0
   return (
-    <span className={cn("inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums", up ? "bg-[var(--lagoon-wash)] text-[#0d7d73]" : "bg-[#fdecec] text-[#b42318]")}>
+    <span className={cn("inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums", up ? "bg-[var(--lagoon-wash)] text-[var(--evergreen)]" : "bg-[var(--danger-subtle)] text-[var(--danger)]")}>
       {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
       {Math.abs(change * 100) >= 1000 ? ">999" : Math.abs(change * 100).toFixed(0)}%
     </span>
@@ -111,7 +111,7 @@ function StatementTable({ model, rows, compact = false }: { model: ReportModel; 
               <th className="pb-2 text-left font-medium" />
               <th className="w-14 pb-2 text-center font-medium">Note</th>
               <th className="w-32 pb-2 text-right font-medium">
-                <span className="rounded-md bg-[var(--ink)] px-2 py-1 text-white">{model.year}</span>
+                <span className="font-semibold text-foreground">{model.year}</span>
               </th>
               {model.priorYear && <th className="w-32 pb-2 text-right font-medium">{model.priorYear}</th>}
               {model.priorYear && <th className="w-20 pb-2 text-right font-medium">Change</th>}
@@ -125,7 +125,7 @@ function StatementTable({ model, rows, compact = false }: { model: ReportModel; 
               return (
                 <tr key={i}>
                   <td colSpan={5} className="pt-4 pb-1">
-                    <span className="font-display text-[15px] font-semibold text-[var(--cobalt)]">{sentence(row.label)}</span>
+                    <span className="font-display text-[15px] font-semibold text-foreground">{sentence(row.label)}</span>
                   </td>
                 </tr>
               )
@@ -140,18 +140,18 @@ function StatementTable({ model, rows, compact = false }: { model: ReportModel; 
             const subtotal = row.kind === "subtotal" || row.kind === "heading"
             return (
               <tr key={i} className={cn(total && "font-semibold", subtotal && "font-semibold")}>
-                <td className={cn("py-2 pr-3", total ? "rounded-l-xl bg-[var(--ink)] pl-3 text-white" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>{sentence(row.label)}</td>
-                <td className={cn("text-center", total ? "bg-[var(--ink)]" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>
-                  {row.note ? <span className={cn("inline-grid size-6 place-items-center rounded-full text-[11px] font-semibold", total ? "bg-white/15 text-white" : "bg-[var(--cobalt-wash)] text-[var(--cobalt)]")}>{row.note}</span> : null}
+                <td className={cn("py-2 pr-3", total ? "border-t border-foreground" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>{sentence(row.label)}</td>
+                <td className={cn("text-center", total ? "border-t border-foreground" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>
+                  {row.note ? <span className={cn("inline-grid size-6 place-items-center rounded-full text-[11px] font-semibold", "bg-[var(--surface-subtle)] text-muted-foreground")}>{row.note}</span> : null}
                 </td>
-                <td className={cn("py-2 text-right tabular-nums", total ? "bg-[var(--ink)] text-white" : subtotal ? "border-t border-dashed" : "border-b border-border/60", !model.priorYear && total && "rounded-r-xl pr-3", (row.current ?? 0) < 0 && !total && "text-[#b42318]")}>
+                <td className={cn("py-2 text-right tabular-nums", total ? "border-t border-foreground border-b-[3px] border-b-foreground border-double" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>
                   {fmt(row.current)}
                 </td>
                 {model.priorYear && (
-                  <td className={cn("py-2 text-right tabular-nums text-muted-foreground", total ? "bg-[var(--ink)] text-white/70" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>{fmt(row.prior)}</td>
+                  <td className={cn("py-2 text-right tabular-nums text-muted-foreground", total ? "border-t border-foreground border-b-[3px] border-b-foreground border-double" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>{fmt(row.prior)}</td>
                 )}
                 {model.priorYear && (
-                  <td className={cn("py-2 text-right", total ? "rounded-r-xl bg-[var(--ink)] pr-3" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>
+                  <td className={cn("py-2 text-right", total ? "border-t border-foreground" : subtotal ? "border-t border-dashed" : "border-b border-border/60")}>
                     <Change current={row.current} prior={row.prior} />
                   </td>
                 )}
@@ -228,10 +228,10 @@ function EquityView({ table, currency }: { table: EquityTable; currency: string 
         </thead>
         <tbody>
           {table.lines.map((line, i) => (
-            <tr key={i} className={cn("border-t", line.kind && "bg-[var(--ink)] font-semibold text-white")}>
+            <tr key={i} className={cn("border-t", line.kind && "border-t-foreground bg-[var(--surface-subtle)] font-semibold")}>
               <td className="px-4 py-2.5">{line.label}</td>
               {line.values.map((value, j) => (
-                <td key={j} className={cn("px-3 py-2.5 text-right tabular-nums", value < 0 && !line.kind && "text-[#b42318]")}>
+                <td key={j} className="px-3 py-2.5 text-right tabular-nums">
                   {fmt(value)}
                 </td>
               ))}
@@ -264,7 +264,7 @@ function ScheduleCard({ schedule, model }: { schedule: Schedule; model: ReportMo
   return (
     <section className={cn("panel space-y-3 p-5", empty && "opacity-70")}>
       <header className="flex items-start gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[var(--cobalt)] to-[var(--lagoon)] font-display text-sm font-semibold text-white">{schedule.number}</span>
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-[var(--surface-subtle)] font-display text-sm font-semibold text-[var(--evergreen)]">{schedule.number}</span>
         <div className="flex-1">
           <h3 className="font-display font-semibold">{schedule.title}</h3>
           {total && !empty && (

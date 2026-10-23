@@ -9,19 +9,20 @@ import { BrandLogo } from "@/components/brand-logo"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard, dock: true },
-  { href: "/data-input", label: "Data Input", short: "Data", icon: Upload, dock: true },
-  { href: "/invoices", label: "Invoices", icon: ReceiptText, dock: true },
-  { href: "/bills", label: "Bills", icon: FilePen, dock: true },
-  { href: "/adjustments", label: "Adjustments", icon: SlidersHorizontal },
-  { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/vat", label: "VAT", icon: Receipt },
-  { href: "/corporate-tax", label: "Corporate Tax", short: "CT", icon: Landmark },
-  { href: "/audit", label: "Audit", icon: ClipboardCheck },
-  { href: "/valuation", label: "Valuation", short: "Value", icon: Gem },
-  { href: "/e-invoicing", label: "E-Invoicing", icon: Network },
-  { href: "/activity", label: "Activity", icon: History },
+  { href: "/dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard, dock: true, section: "Work" },
+  { href: "/data-input", label: "Data input", short: "Data", icon: Upload, dock: true, section: "Work" },
+  { href: "/invoices", label: "Invoices", icon: ReceiptText, dock: true, section: "Work" },
+  { href: "/bills", label: "Bills", icon: FilePen, dock: true, section: "Work" },
+  { href: "/adjustments", label: "Adjustments", icon: SlidersHorizontal, section: "Work" },
+  { href: "/reports", label: "Reports", icon: FileText, section: "Reports" },
+  { href: "/vat", label: "VAT", icon: Receipt, section: "Reports" },
+  { href: "/corporate-tax", label: "Corporate tax", short: "CT", icon: Landmark, section: "Reports" },
+  { href: "/valuation", label: "Valuation", short: "Value", icon: Gem, section: "Reports" },
+  { href: "/e-invoicing", label: "E-invoicing", icon: Network, section: "Reports" },
+  { href: "/audit", label: "Audit", icon: ClipboardCheck, section: "Review" },
+  { href: "/activity", label: "Activity", icon: History, section: "Review" },
 ]
+const sections = ["Work", "Reports", "Review"]
 
 function useActive() {
   const pathname = usePathname()
@@ -33,7 +34,7 @@ function SignOutButton({ compact }: { compact?: boolean }) {
   return (
     <button
       type="button"
-      className={compact ? "rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white" : "nav-link w-full"}
+      className={compact ? "rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" : "nav-link w-full"}
       aria-label="Sign out"
       onClick={async () => {
         await getSupabaseBrowserClient()?.auth.signOut()
@@ -61,48 +62,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const extra = navItems.filter((item) => !item.dock)
   return (
     <div className="min-h-screen">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[17rem] flex-col bg-[var(--ink)] lg:flex">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-90"
-          style={{
-            background:
-              "radial-gradient(22rem 14rem at 0% 0%, rgba(47,91,255,.28), transparent 70%), radial-gradient(18rem 18rem at 100% 100%, rgba(18,181,166,.16), transparent 70%)",
-          }}
-        />
-        <div className="relative flex h-20 items-center px-6">
-          <BrandLogo href="/dashboard" tone="light" imageClassName="h-10" priority />
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[15.5rem] flex-col border-r bg-card lg:flex">
+        <div className="flex h-16 items-center px-5">
+          <BrandLogo href="/dashboard" imageClassName="h-8" priority />
         </div>
-        <nav aria-label="Main" className="relative grid gap-1 px-3 py-4">
-          {navItems.map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href} className="nav-link" aria-current={isActive(href) ? "page" : undefined}>
-              <span className="nav-icon">
-                <Icon className="size-4" />
-              </span>
-              {label}
-            </Link>
+        <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-4">
+          {sections.map((section) => (
+            <div key={section} className="mt-4 first:mt-1">
+              <p className="px-2.5 pb-1.5 text-xs font-medium text-subtle-foreground">{section}</p>
+              <div className="grid gap-0.5">
+                {navItems
+                  .filter((item) => item.section === section)
+                  .map(({ href, label, icon: Icon }) => (
+                    <Link key={href} href={href} className="nav-link" aria-current={isActive(href) ? "page" : undefined}>
+                      <span className="nav-icon">
+                        <Icon className="size-4" />
+                      </span>
+                      {label}
+                    </Link>
+                  ))}
+              </div>
+            </div>
           ))}
         </nav>
-        <div className="relative mt-auto space-y-3 px-3 pb-5">
-          <p className="mx-3 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-white/60">
+        <div className="space-y-2 border-t px-3 py-4">
+          <p className="px-2.5 text-xs leading-5 text-subtle-foreground">
             Figures are prepared from what you enter and should be reviewed before filing.
           </p>
           <SignOutButton />
         </div>
       </aside>
 
-      <header className="sticky top-0 z-20 flex h-14 items-center justify-between bg-[var(--ink)] px-4 lg:hidden">
-        <BrandLogo href="/dashboard" tone="light" imageClassName="h-8" />
+      <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-card px-4 lg:hidden">
+        <BrandLogo href="/dashboard" imageClassName="h-7" />
         <SignOutButton compact />
       </header>
 
-      <main className="min-h-screen px-4 pb-32 pt-6 sm:px-6 lg:ml-[17rem] lg:px-10 lg:pb-12 lg:pt-10">
+      <main className="min-h-screen px-4 pb-32 pt-6 sm:px-6 lg:ml-[15.5rem] lg:px-10 lg:pb-12 lg:pt-10">
         <div className="mx-auto w-full max-w-7xl">{children}</div>
       </main>
 
       <nav
         aria-label="Main"
-        className="fixed inset-x-3 bottom-3 z-30 flex gap-1 rounded-[20px] bg-[var(--ink)]/95 p-1.5 shadow-[0_18px_40px_-12px_rgba(13,27,46,.7)] ring-1 ring-white/10 backdrop-blur lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 flex gap-1 border-t bg-card px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 lg:hidden"
       >
         {navItems
           .filter((item) => item.dock)
@@ -118,8 +120,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </nav>
       {more && (
-        <div className="fixed inset-0 z-20 bg-[rgba(13,27,46,.35)] lg:hidden" onClick={() => setMore(false)}>
-          <nav aria-label="More" className="absolute inset-x-3 bottom-[5.25rem] grid grid-cols-3 gap-2 rounded-[20px] bg-[var(--ink)] p-3 shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-20 bg-[rgba(17,26,22,.24)] lg:hidden" onClick={() => setMore(false)}>
+          <nav aria-label="More" className="absolute inset-x-3 bottom-[4.75rem] grid grid-cols-3 gap-1 rounded-xl border bg-card p-2 shadow-xl" onClick={(e) => e.stopPropagation()}>
             {extra.map(({ href, label, icon: Icon }) => (
               <Link key={href} href={href} className="dock-link py-3" onClick={() => setMore(false)} aria-current={isActive(href) ? "page" : undefined}>
                 <Icon className="size-5" />

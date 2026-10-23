@@ -125,7 +125,7 @@ export function EInvoicingWorkbench() {
 
       <section className="panel overflow-hidden">
         <h2 className="flex items-center gap-2 border-b p-5 font-display text-lg font-semibold">
-          <Gavel className="size-5 text-[#b42318]" /> Fines and penalties
+          <Gavel className="size-5 text-[var(--danger)]" /> Fines and penalties
         </h2>
         <ul className="divide-y text-sm">
           {PENALTIES.map((p) => (
@@ -256,7 +256,7 @@ function AspRequestForm({ companyId, invoices, bills, requests, onSent }: { comp
         <Field label="Anything else">
           <textarea className="min-h-16 w-full rounded-md border px-3 py-2 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
-        {error && <p className="text-sm text-[#b42318]">{error}</p>}
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
         <div className="flex justify-end">
           <Button type="submit" disabled={sending}>
             {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />} Get quotes

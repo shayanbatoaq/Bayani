@@ -170,7 +170,7 @@ export function CtWorkbench() {
             </TabButton>
             {ret.steps.map((step) => (
               <TabButton key={step.number} active={tab === step.number} onClick={() => setTab(step.number)}>
-                <span className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full bg-black/10 text-[11px] font-semibold">{step.number}</span>
+                <span className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[11px] font-semibold">{step.number}</span>
                 {step.title}
               </TabButton>
             ))}
@@ -200,7 +200,7 @@ export function CtWorkbench() {
                 </div>
               ))}
 
-          <div className="fixed inset-x-4 bottom-20 z-20 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur lg:left-[19rem] lg:bottom-4">
+          <div className="fixed inset-x-4 bottom-20 z-20 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur lg:left-[17.5rem] lg:bottom-4">
             <Button onClick={save} disabled={!dirty || saving}>
               {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
               Save answers
@@ -235,9 +235,9 @@ function Header({ ret }: { ret: CtReturn }) {
   return (
     <div className="panel overflow-hidden">
       <div className="grid sm:grid-cols-4">
-        <div className="flex flex-col justify-center gap-1 bg-[var(--ink)] px-5 py-4 text-white">
+        <div className="flex flex-col justify-center gap-1 bg-[var(--surface-subtle)] px-5 py-4">
           <span className="text-sm font-semibold">Filing Period</span>
-          <span className="text-xs text-white/75">{ret.regime}</span>
+          <span className="text-xs text-muted-foreground">{ret.regime}</span>
         </div>
         {facts.map(([label, value]) => (
           <div key={label} className="border-l px-5 py-4">
@@ -393,7 +393,7 @@ function Commentary({ ret }: { ret: CtReturn }) {
 function Summary({ ret }: { ret: CtReturn }) {
   return (
     <div className="overflow-hidden rounded-lg border bg-white">
-      <div className="bg-[#efe9b9] px-4 py-2 text-center text-sm font-semibold">Tax Summary</div>
+      <div className="border-b bg-[var(--surface-subtle)] px-4 py-2.5 text-sm font-semibold">Tax summary</div>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-y bg-secondary/60">
@@ -450,7 +450,7 @@ function Section({ section, answers, onChange }: { section: FormSection; answers
 }
 
 function Row({ row, comparative, answers, onChange }: { row: FormRow; comparative: boolean; answers: Partial<CtAnswers>; onChange: (key: keyof CtAnswers, value: CtAnswers[keyof CtAnswers]) => void }) {
-  if (row.kind === "heading") return <p className="bg-secondary/30 px-5 py-1.5 text-xs font-semibold uppercase tracking-wide">{row.label}</p>
+  if (row.kind === "heading") return <p className="bg-secondary/30 px-5 py-1.5 text-xs font-semibold">{row.label}</p>
   const field = row.input
   const isQuestion = field?.type === "boolean" || (typeof row.value === "boolean" && !field)
   if (isQuestion)
@@ -483,12 +483,12 @@ function Row({ row, comparative, answers, onChange }: { row: FormRow; comparativ
       {field ? (
         <FieldControl row={row} answers={answers} onChange={onChange} />
       ) : (
-        <span className={cn("rounded border bg-[#d9d9d9]/60 px-2 py-1.5 text-sm", typeof row.value === "number" ? "text-right font-mono tabular-nums" : "")}>
+        <span className={cn("rounded border bg-[var(--surface-subtle)] px-2 py-1.5 text-sm", typeof row.value === "number" ? "text-right font-mono tabular-nums" : "")}>
           {typeof row.value === "number" ? fmt(row.value) : String(row.value ?? "")}
         </span>
       )}
       {comparative && (
-        <span className="rounded border bg-[#d9d9d9]/60 px-2 py-1.5 text-right font-mono text-sm tabular-nums">{row.prior === null || row.prior === undefined ? "—" : fmt(row.prior)}</span>
+        <span className="rounded border bg-[var(--surface-subtle)] px-2 py-1.5 text-right font-mono text-sm tabular-nums">{row.prior === null || row.prior === undefined ? "—" : fmt(row.prior)}</span>
       )}
     </div>
   )

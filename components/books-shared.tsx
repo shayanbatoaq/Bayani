@@ -151,7 +151,7 @@ export function Field({ label, children, hint, required }: { label: string; chil
     <div className="min-w-0 space-y-1.5">
       <Label className="text-[13px]" htmlFor={tieable ? id : undefined}>
         {label}
-        {required && <span className="text-[#b42318]"> *</span>}
+        {required && <span className="text-[var(--danger)]"> *</span>}
       </Label>
       {tieable && only ? cloneElement(only, { id }) : children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
@@ -201,7 +201,7 @@ export function PartyForm({ kind, initial, onSave, onCancel }: { kind: "client" 
       <Field label="Address">
         <textarea className="min-h-16 w-full rounded-md border px-3 py-2 text-sm" value={party.address} onChange={(e) => set("address", e.target.value)} />
       </Field>
-      {error && <p className="text-sm text-[#b42318]">{error}</p>}
+      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
@@ -313,7 +313,7 @@ export function HeadPicker({
           <ul id={listId} role="listbox" className="max-h-72 overflow-y-auto py-1 text-sm">
             {groups.map((g) => (
               <li key={g}>
-                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{g}</p>
+                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold text-muted-foreground">{g}</p>
                 <ul>
                   {matches
                     .filter((m) => m.group === g)
@@ -364,10 +364,10 @@ export function HeadPicker({
 
 export function StatusPill({ status }: { status: string }) {
   const style: Record<string, string> = {
-    paid: "bg-[var(--lagoon-wash)] text-[#0b6b62]",
-    partial: "bg-[var(--saffron-wash)] text-[#6b4500]",
-    unpaid: "bg-[var(--cobalt-wash)] text-[#1d2f6b]",
-    overdue: "bg-[#fdecec] text-[#b42318]",
+    paid: "bg-[var(--lagoon-wash)] text-[var(--evergreen)]",
+    partial: "bg-[var(--saffron-wash)] text-[var(--warning-text)]",
+    unpaid: "bg-[var(--cobalt-wash)] text-[var(--info-text)]",
+    overdue: "bg-[var(--danger-subtle)] text-[var(--danger)]",
     credited: "bg-muted text-muted-foreground",
   }
   const label: Record<string, string> = { paid: "Paid", partial: "Part paid", unpaid: "Unpaid", overdue: "Overdue", credited: "Credited" }

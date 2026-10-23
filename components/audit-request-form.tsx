@@ -75,7 +75,7 @@ export function AuditRequestForm() {
       <form onSubmit={submit} className="panel space-y-6 p-5 sm:p-7" noValidate>
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-[var(--cobalt)] to-[var(--lagoon)] text-white">
+            <span className="grid size-11 place-items-center rounded-2xl border bg-[var(--surface-subtle)] text-[var(--evergreen)]">
               <ClipboardCheck className="size-5" />
             </span>
             <div>
@@ -141,7 +141,7 @@ export function AuditRequestForm() {
       </form>
 
       <aside className="space-y-5">
-        <section className="insight-panel space-y-4 p-5 text-white">
+        <section className="insight-panel space-y-4 p-5">
           <h3 className="font-display font-semibold">What happens next</h3>
           {[
             { icon: Send, text: "Your request reaches the audit team with the company details already on file." },
@@ -149,8 +149,8 @@ export function AuditRequestForm() {
             { icon: Clock3, text: "A quotation is sent to the phone number or email you give." },
             { icon: ShieldCheck, text: "The request is kept with your company records so you can track it here." },
           ].map((item, i) => (
-            <div key={i} className="flex gap-3 text-sm text-white/80">
-              <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-white/10">
+            <div key={i} className="flex gap-3 text-sm text-muted-foreground">
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-[var(--surface-subtle)] text-[var(--evergreen)]">
                 <item.icon className="size-4" />
               </span>
               {item.text}
