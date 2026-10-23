@@ -80,9 +80,9 @@ export function AdjustmentsWorkbench() {
       </p>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Summary icon={CalendarClock} label={`Prepaid released in ${year}`} value={thisYear(prepaid)} />
-        <Summary icon={Wrench} label={`Depreciation in ${year}`} value={thisYear(assets)} />
-        <Summary icon={Hourglass} label={`Accrued in ${year}`} value={accrued} />
+        <Summary icon={CalendarClock} label={`Prepaid released in ${year} (${company.baseCurrency ?? "AED"})`} value={thisYear(prepaid)} />
+        <Summary icon={Wrench} label={`Depreciation in ${year} (${company.baseCurrency ?? "AED"})`} value={thisYear(assets)} />
+        <Summary icon={Hourglass} label={`Accrued in ${year} (${company.baseCurrency ?? "AED"})`} value={accrued} />
       </div>
 
       <Section
@@ -137,7 +137,7 @@ function Summary({ icon: Icon, label, value }: { icon: typeof Wrench; label: str
       </span>
       <div>
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="font-display text-lg font-semibold tabular-nums">AED {aed(value)}</p>
+        <p className="font-display text-lg font-semibold tabular-nums">{value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
       </div>
     </div>
   )
@@ -170,7 +170,7 @@ function ScheduleRow({ s, period, busy, onRemove }: { s: Schedule; period: Perio
       <div className="min-w-0">
         <p className="truncate font-medium">{s.label}</p>
         <p className="text-xs text-muted-foreground">
-          {s.kind === "depreciation" ? "Depreciation Expense" : s.ledgerName} · AED {aed(s.amount)} over {s.months} months · {shortDate(s.start)} – {shortDate(scheduleEnd(s.start, s.months))} · {source}
+          {s.kind === "depreciation" ? "Depreciation Expense" : s.ledgerName} · {aed(s.amount)} over {s.months} months · {shortDate(s.start)} – {shortDate(scheduleEnd(s.start, s.months))} · {source}
         </p>
         <div className="mt-1.5 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
           <div className="h-full rounded-full bg-[var(--lagoon)]" style={{ width: `${done}%` }} />
@@ -210,7 +210,7 @@ function AccrualRow({ a, busy, onRemove }: { a: Accrual; busy: boolean; onRemove
         </p>
       </div>
       <div className="flex items-center gap-2">
-        <span className="font-medium tabular-nums">AED {aed(a.amount)}</span>
+        <span className="font-medium tabular-nums">{aed(a.amount)}</span>
         <Button size="icon" variant="ghost" aria-label={`Remove ${a.label}`} disabled={busy} onClick={onRemove}>
           <Trash2 className="size-4" />
         </Button>
@@ -320,7 +320,7 @@ function ScheduleForm({ kind, company, change, onDone }: { kind: "prepaid" | "de
         </Field>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={kind === "prepaid" ? "Amount paid (AED)" : "Cost (AED)"} required>
+        <Field label={kind === "prepaid" ? `Amount paid (${company.baseCurrency ?? "AED"})` : `Cost (${company.baseCurrency ?? "AED"})`} required>
           <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
         <Field label={kind === "prepaid" ? "Covers from" : "In use from"} required>
@@ -380,7 +380,7 @@ function AccrualForm({ company, change, onDone }: { company: Company; change: Ch
         <HeadPicker label="Expense head" value={head?.name ?? ""} options={heads} onChange={(o) => setHead(o)} />
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Amount (AED)" required>
+        <Field label={`Amount (${company.baseCurrency ?? "AED"})`} required>
           <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
         <Field label="Accrue at">

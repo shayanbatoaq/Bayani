@@ -35,7 +35,7 @@ async function readWithAi(body: z.infer<typeof bodySchema>): Promise<BillFields 
   if (!ai) return null
   const instructions = `You read supplier bills, purchase invoices and receipts for a UAE business${body.ownName ? ` called "${body.ownName}"` : ""} (the buyer; never return the buyer as the supplier${body.ownTrn ? ` and never return TRN ${body.ownTrn}` : ""}).
 Read the figures exactly as printed. "net" is the total before VAT for the whole bill (sub total / taxable amount), "vat" the total VAT for the whole bill, "total" the bill total including VAT (before deducting any advance or payment). Ignore tax summary tables that repeat the taxable amount. Check that net + vat = total.
-Return ONLY JSON: {"supplier": string, "vendorTrn": string (15 digits), "date": "YYYY-MM-DD", "number": string (bill / invoice / receipt number), "net": number (amount before VAT), "vat": number, "total": number (amount with VAT), "payment": "cash"|"card"|"bank"|"credit"|"", "description": string (what was bought, short), "expenseHead": string (choose the closest of: ${body.heads.slice(0, 120).join("; ")})}.
+Return ONLY JSON: {"supplier": string, "vendorTrn": string (15 digits), "date": "YYYY-MM-DD", "number": string (bill / invoice / receipt number), "net": number (amount before VAT), "vat": number, "total": number (amount with VAT), "payment": "cash"|"card"|"bank"|"credit"|"", "currency": "AED"|"USD"|"EUR"|"GBP"|other ISO code, "description": string (what was bought, short), "expenseHead": string (choose the closest of: ${body.heads.slice(0, 120).join("; ")})}.
 Use "" or omit a key when the document does not show it; never guess numbers. UAE numeric dates are day/month/year. Amounts in AED.`
   const content: unknown[] = [{ type: "text", text: body.text.slice(0, 40_000) || "(no text layer)" }]
   for (const url of body.images) content.push({ type: "image_url", image_url: { url, detail: "high" } })
@@ -57,6 +57,7 @@ Use "" or omit a key when the document does not show it; never guess numbers. UA
   if (s(raw.number)) out.number = s(raw.number).slice(0, 60)
   for (const key of ["net", "vat", "total"] as const) if (n(raw[key]) !== undefined) out[key] = n(raw[key])
   if (["cash", "card", "bank", "credit"].includes(s(raw.payment))) out.payment = s(raw.payment) as BillFields["payment"]
+  if (/^[A-Z]{3}$/.test(s(raw.currency))) out.currency = s(raw.currency)
   if (s(raw.description)) out.description = s(raw.description).slice(0, 500)
   const head = body.heads.find((h) => h.toLowerCase() === s(raw.expenseHead).toLowerCase())
   if (head) out.ledgerName = head
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
     const check: BillCheck = { amounts: ruleCheck.amounts, notes: [...ruleCheck.notes] }
     if (ai) {
       // Words: the AI reading, which sees the page, is preferred.
-      for (const key of ["supplier", "vendorTrn", "date", "number", "payment", "description", "ledgerName"] as const)
+      for (const key of ["supplier", "vendorTrn", "date", "number", "payment", "description", "ledgerName", "currency"] as const)
         if (ai[key] !== undefined) {
           ;(fields as Record<string, unknown>)[key] = ai[key]
           sources[key] = "AI"

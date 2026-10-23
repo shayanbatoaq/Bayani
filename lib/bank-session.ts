@@ -37,5 +37,26 @@ export const bankSessionSchema = z.object({
   vatIncluded: z.boolean(),
   openingSource: z.enum(["retained", "capital", "owner", "loan"]),
   appliedAt: z.string().max(40).nullable(),
+  /** 2: rates are the user's own rates into the base currency (1: rates into AED, now replaced by daily rates). */
+  version: z.number().int().default(1),
+  /** Per line and per payer/payee: the amount includes 5% VAT, or carries none. */
+  vatChoices: z.record(z.string().max(40), z.enum(["incl", "none"])).default({}),
+  vatRules: z.record(z.string().max(120), z.enum(["incl", "none"])).default({}),
+  /** The VAT in the lines, for the VAT return (amounts in the base currency and in AED). */
+  vatItems: z
+    .array(
+      z.object({
+        id: z.string().max(40),
+        date: z.string().max(10),
+        description: z.string().max(300),
+        kind: z.enum(["output", "input"]),
+        net: z.number().finite(),
+        vat: z.number().finite(),
+        netAed: z.number().finite(),
+        vatAed: z.number().finite(),
+      }),
+    )
+    .max(20000)
+    .default([]),
 })
 export type BankSession = z.infer<typeof bankSessionSchema>

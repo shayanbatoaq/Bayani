@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import type { Books } from "@/lib/books"
 import { PENALTIES, RULES, SOURCES, THRESHOLD, WAVES, assess, type AspRequest } from "@/lib/e-invoicing"
 import { scheduleValue } from "@/lib/financial-statements"
+import { fetchRate } from "@/lib/fx"
 import { cn } from "@/lib/utils"
 
 export function EInvoicingWorkbench() {
@@ -32,7 +33,16 @@ export function EInvoicingWorkbench() {
 
   // The latest year with sales (a year made only of a schedule's last months has none).
   const latest = useMemo(() => [...companyRecords].sort((a, b) => b.year - a.year).find((r) => scheduleValue(r.statements, "sales") !== 0), [companyRecords])
-  const revenue = latest ? Math.abs(scheduleValue(latest.statements, "sales")) : null
+  // The threshold is in AED: revenue in another base currency is converted at the year's average rate.
+  const [aedPer, setAedPer] = useState(1)
+  const base = company?.baseCurrency ?? "AED"
+  useEffect(() => {
+    if (base === "AED" || !latest) return
+    fetchRate(base, "AED", `${latest.year}-12-31`, `${latest.year}-01-01`)
+      .then((q) => setAedPer(q.rate || 1))
+      .catch(() => {})
+  }, [base, latest])
+  const revenue = latest ? Math.abs(scheduleValue(latest.statements, "sales")) * (base === "AED" ? 1 : aedPer) : null
   const now = today()
   const a = assess(revenue, now)
   // Last 12 months of documents, as a starting point for the quote.

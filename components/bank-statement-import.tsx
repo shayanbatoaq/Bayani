@@ -20,12 +20,15 @@ import {
 } from "lucide-react"
 
 import { HeadPicker, Modal, SPREADABLE, SpreadChoice } from "@/components/books-shared"
+import { InvoiceForm } from "@/components/invoices-workbench"
+import type { Company } from "@/lib/company"
 import { Button } from "@/components/ui/button"
 import type { Books, BooksAction } from "@/lib/books"
 import { linkedLine, matchCandidates, sameLine, type LineLink, type MatchCandidate } from "@/lib/books-engine"
+import { fetchSeries, rateOn, type RateSeries } from "@/lib/fx"
+import { chargesWithVatLine, lawVat, splitVat, type VatAnswer } from "@/lib/vat-rules"
 import {
   CATEGORIES,
-  DEFAULT_RATES,
   HEAD_PREFIX,
   categoriseAccounts,
   categoryByKey,
@@ -65,7 +68,6 @@ const money = (n: number, digits = 2) =>
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })
-const VAT_SCOPE = new Set(["sales", "purchases", "rent", "utilities", "professional", "marketing", "software", "travel", "vehicle", "meals", "office", "otherExpense", "assets"])
 const OPENING_SOURCES = [
   {
     key: "retained",
@@ -108,7 +110,13 @@ export function BankStatementImport({
   sessionKey,
   customHeads,
   onAddHead,
+  baseCurrency = "AED",
+  company,
 }: {
+  /** The company, for invoices made from receipts. */
+  company?: Company
+  /** Everything is converted into this currency, at the rate shown. */
+  baseCurrency?: string
   companyName: string
   period: { start: string; end: string }
   entryMode: "closing" | "movement"
@@ -127,8 +135,13 @@ export function BankStatementImport({
   const [dragging, setDragging] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [sessionRules, setSessionRules] = useState<Record<string, string>>({})
-  const [rates, setRates] = useState<Record<string, number>>(DEFAULT_RATES)
-  const [vatIncluded, setVatIncluded] = useState(vatRegistered)
+  /** Rates the user typed (units of the base currency per unit), replacing the daily rates for that currency. */
+  const [rates, setRates] = useState<Record<string, number>>({})
+  const [series, setSeries] = useState<Record<string, RateSeries | "failed">>({})
+  const [vatChoices, setVatChoices] = useState<Record<string, VatAnswer>>({})
+  const [vatRules, setVatRules] = useState<Record<string, VatAnswer>>({})
+  const [invoiceFor, setInvoiceFor] = useState<Line | null>(null)
+  const [partyRules, setPartyRules] = useState<Record<string, string>>({})
   const [openingSource, setOpeningSource] = useState<(typeof OPENING_SOURCES)[number]["key"]>("retained")
   const [view, setView] = useState<string>("review")
   const [query, setQuery] = useState("")
@@ -171,7 +184,7 @@ export function BankStatementImport({
       cancelled = true
     }
   }, [sessionKey.companyId])
-  async function booksChange(action: BooksAction) {
+  async function booksChange(action: BooksAction): Promise<Books> {
     const response = await fetch("/api/books", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -181,6 +194,7 @@ export function BankStatementImport({
     if (!response.ok) throw new Error(data.error || "Could not save.")
     booksRevision.current = data.books.revision
     setBooks(data.books)
+    return data.books
   }
 
   /* ---- saved work: restored on arrival, saved as the user works ---- */
@@ -195,8 +209,9 @@ export function BankStatementImport({
         setFiles(saved.files.map((f) => ({ id: f.id, name: f.name, status: "done" as const, parsed: { bank: f.bank, accounts: f.accounts, warnings: f.warnings } })))
         setOverrides(saved.overrides)
         setSessionRules(saved.sessionRules)
-        setRates({ ...DEFAULT_RATES, ...saved.rates })
-        setVatIncluded(saved.vatIncluded)
+        if (saved.version >= 2) setRates(saved.rates)
+        setVatChoices(saved.vatChoices)
+        setVatRules(saved.vatRules)
         setOpeningSource(saved.openingSource)
         setAppliedAt(saved.appliedAt)
         setView(Object.keys(saved.overrides).length ? "all" : "review")
@@ -205,55 +220,6 @@ export function BankStatementImport({
       .finally(() => !cancelled && setRestoring(false))
     return () => {
       cancelled = true
-    }
-  }, [sessionUrl])
-
-  const sessionBody = useMemo(() => {
-    if (restoring) return ""
-    const session: BankSession = {
-      files: files
-        .filter((f) => f.status === "done" && f.parsed && f.parsed.accounts.length)
-        .map((f) => ({ id: f.id, name: f.name, bank: f.parsed!.bank, warnings: f.parsed!.warnings.slice(0, 10), accounts: f.parsed!.accounts })),
-      overrides,
-      sessionRules,
-      rates,
-      vatIncluded,
-      openingSource,
-      appliedAt,
-    }
-    return JSON.stringify(session)
-  }, [restoring, files, overrides, sessionRules, rates, vatIncluded, openingSource, appliedAt])
-  const lastSaved = useRef("")
-  useEffect(() => {
-    if (!sessionBody || sessionBody === lastSaved.current) return
-    const timer = setTimeout(async () => {
-      setSaveState("saving")
-      try {
-        const response = await fetch(sessionUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: sessionBody })
-        if (!response.ok) throw new Error()
-        lastSaved.current = sessionBody
-        setSaveState("saved")
-      } catch {
-        setSaveState("error")
-      }
-    }, 700)
-    return () => clearTimeout(timer)
-  }, [sessionBody, sessionUrl])
-  // Leaving the page with a change not yet saved: send it on the way out.
-  const pendingBody = useRef("")
-  useEffect(() => {
-    pendingBody.current = sessionBody
-  }, [sessionBody])
-  useEffect(() => {
-    const flush = () => {
-      const body = pendingBody.current
-      if (!body || body === lastSaved.current) return
-      fetch(sessionUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60000 }).catch(() => {})
-    }
-    window.addEventListener("pagehide", flush)
-    return () => {
-      window.removeEventListener("pagehide", flush)
-      flush()
     }
   }, [sessionUrl])
 
@@ -389,6 +355,9 @@ export function BankStatementImport({
   }
 
   async function linkPayment(t: (typeof all)[number], c: MatchCandidate) {
+    const base = Math.round(Math.abs(t.amount * lineRate(t)) * 100) / 100
+    // The payment in the document's currency: the line itself when it is in that currency, else converted at the document's rate.
+    const amount = (c.currency ?? baseCurrency) === t.currency ? Math.abs(t.amount) : Math.round((base / (c.rate || 1)) * 100) / 100
     await booksChange({
       action: "payment",
       payment: {
@@ -396,7 +365,8 @@ export function BankStatementImport({
         kind: c.kind,
         docId: c.id,
         date: t.date,
-        amount: Math.round(Math.abs(t.amount * rate(t.currency)) * 100) / 100,
+        amount,
+        baseAmount: base,
         method: "bankLine",
         bankLine: { id: t.id, date: t.date, amount: t.amount, description: t.description.slice(0, 2000) },
         note: "",
@@ -427,33 +397,96 @@ export function BankStatementImport({
     return { account, bank, file: names.length > 1 ? `${names.length} statements` : names[0], opening, closing, count: within.length, gaps, duplicates }
   })
   const currencies = [...new Set(accounts.map((a) => a.account.currency))]
-  const rate = (c: string) => (c === "AED" ? 1 : (rates[c] ?? 0))
+  // Daily rates into the base currency for every other currency on the statements.
+  const foreign = currencies.filter((c) => c !== baseCurrency)
+  const vatAed = vatRegistered && baseCurrency !== "AED" ? ["AED"] : []
+  const seriesKey = [...foreign, ...vatAed.map((c) => `>${c}`)].join(",")
+  useEffect(() => {
+    if (!seriesKey) return
+    let cancelled = false
+    const from = new Date(`${period.start}T00:00:00Z`)
+    from.setUTCDate(from.getUTCDate() - 7)
+    const start = from.toISOString().slice(0, 10)
+    for (const key of seriesKey.split(",")) {
+      const [a, b] = key.startsWith(">") ? [baseCurrency, key.slice(1)] : [key, baseCurrency]
+      fetchSeries(a, b, start, period.end)
+        .then((r) => !cancelled && setSeries((x) => ({ ...x, [key]: r })))
+        .catch(() => !cancelled && setSeries((x) => ({ ...x, [key]: "failed" })))
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [seriesKey, baseCurrency, period.start, period.end])
+  const seriesOf = (c: string) => (typeof series[c] === "object" ? (series[c] as RateSeries) : undefined)
+  /** Units of the base currency per unit of `c` on a date: the user's rate, else that day's rate. */
+  const rateAt = (c: string, date: string) => (c === baseCurrency ? 1 : rates[c] || rateOn(seriesOf(c), date))
+  const lineRate = (t: { currency: string; date: string }) => rateAt(t.currency, t.date)
+  const toAed = (amount: number, date: string) => (baseCurrency === "AED" ? amount : amount * (rateOn(seriesOf(">AED"), date) || 0))
+  const missingRates = foreign.filter((c) => !rates[c] && (!seriesOf(c) || !Object.keys(seriesOf(c)!.rates).length))
   const matches =
     books && (books.invoices.length || books.bills.length)
       ? inPeriod
           .filter((t) => !links.has(t.id) && !dismissed.has(t.id) && !["transfer", "reversed"].includes(effective(t)))
-          .map((t) => ({ t, candidates: matchCandidates(books, { ...t, amount: t.amount * rate(t.currency) }) }))
+          .map((t) => ({ t, candidates: matchCandidates(books, { ...t, amount: t.amount * lineRate(t), original: { amount: t.amount, currency: t.currency }, base: baseCurrency }) }))
           .filter((m) => m.candidates.length)
       : []
-  const openingAed = accountFigures.reduce((s, a) => s + a.opening * rate(a.account.currency), 0)
-  const closingAed = accountFigures.reduce((s, a) => s + a.closing * rate(a.account.currency), 0)
+  // Balances at the rates on the first and last day of the year; lines at the rate of their day.
+  const openingAed = accountFigures.reduce((s, a) => s + a.opening * rateAt(a.account.currency, period.start), 0)
+  const closingAed = accountFigures.reduce((s, a) => s + a.closing * rateAt(a.account.currency, period.end), 0)
   const coverage = coverageOf(
     accounts.map((a) => a.account),
     period,
   )
 
-  /* ---- totals by head ---- */
-  const totals = new Map<string, { amount: number; count: number }>()
-  for (const t of inPeriod) {
-    const key = effective(t)
-    const entry = totals.get(key) ?? { amount: 0, count: 0 }
-    entry.amount += t.amount * rate(t.currency)
-    entry.count++
-    totals.set(key, entry)
+  /* ---- VAT on each line ---- */
+  const separateVat = useMemo(() => chargesWithVatLine(inPeriod, (t) => effective(t) === "vatPaid"), [inPeriod, overrides, sessionRules, links]) // eslint-disable-line react-hooks/exhaustive-deps
+  const learnedVat = useMemo(() => new Map(learned.filter((r) => r.vat).map((r) => [r.pattern, r.vat!])), [learned])
+  /** "incl" / "none", or null while the user has not said. */
+  const vatOf = (t: (typeof all)[number]): VatAnswer | null => {
+    if (!vatRegistered) return "none"
+    const category = effective(t)
+    const head = catOf(category)
+    const law = lawVat(category, head?.scheduleKey ?? "")
+    if (law) return law
+    if (separateVat.has(t.id)) return "none"
+    const pattern = patternOf(t.description)
+    return vatChoices[t.id] ?? vatRules[pattern] ?? learnedVat.get(pattern) ?? null
   }
+  function setVat(t: (typeof all)[number], answer: VatAnswer) {
+    setVatChoices((v) => ({ ...v, [t.id]: answer }))
+    const pattern = patternOf(t.description)
+    if (pattern) setVatRules((r) => ({ ...r, [pattern]: answer }))
+  }
+  const isSales = (t: (typeof all)[number]) => {
+    const key = effective(t)
+    return key === "sales" || (key.startsWith(HEAD_PREFIX) && catOf(key)?.scheduleKey === "sales")
+  }
+  const unbilledSales = books ? inPeriod.filter((t) => t.amount > 0 && isSales(t) && !links.has(t.id)) : []
+  const vatToAnswer = inPeriod.filter((t) => vatOf(t) === null && effective(t) !== "review")
+  const vatItems = inPeriod.flatMap((t) => {
+    const category = effective(t)
+    const base = Math.round(t.amount * lineRate(t) * 100) / 100
+    if (category === "vatPaid")
+      return [{ id: t.id, date: t.date, description: t.description.slice(0, 300), kind: "input" as const, net: 0, vat: -base, netAed: 0, vatAed: Math.round(-toAed(base, t.date) * 100) / 100 }]
+    if (vatOf(t) !== "incl") return []
+    const { net, vat } = splitVat(base)
+    return [
+      {
+        id: t.id,
+        date: t.date,
+        description: t.description.slice(0, 300),
+        kind: base > 0 ? ("output" as const) : ("input" as const),
+        net: Math.abs(net),
+        vat: Math.abs(vat),
+        netAed: Math.round(Math.abs(toAed(net, t.date)) * 100) / 100,
+        vatAed: Math.round(Math.abs(toAed(vat, t.date)) * 100) / 100,
+      },
+    ]
+  })
+
   const counted = (t: (typeof all)[number]) => !["transfer", "reversed"].includes(effective(t))
-  const moneyIn = inPeriod.filter((t) => t.amount > 0 && counted(t)).reduce((s, t) => s + t.amount * rate(t.currency), 0)
-  const moneyOut = inPeriod.filter((t) => t.amount < 0 && counted(t)).reduce((s, t) => s + t.amount * rate(t.currency), 0)
+  const moneyIn = inPeriod.filter((t) => t.amount > 0 && counted(t)).reduce((s, t) => s + t.amount * lineRate(t), 0)
+  const moneyOut = inPeriod.filter((t) => t.amount < 0 && counted(t)).reduce((s, t) => s + t.amount * lineRate(t), 0)
 
   function buildRows() {
     const out = new Map<string, { ledgerName: string; amount: number; scheduleKey: string }>()
@@ -463,19 +496,28 @@ export function BankStatementImport({
       entry.amount += amount
       out.set(key, entry)
     }
-    for (const [key, total] of totals) {
+    let pending = 0
+    let lines = 0
+    for (const t of inPeriod) {
+      const key = effective(t)
+      const amount = t.amount * lineRate(t)
+      lines += amount
+      if (key === "review" || key === "reversed") {
+        pending += amount
+        continue
+      }
       const category = catOf(key)
       if (!category?.ledgerName) continue
-      let amount = total.amount
-      if (vatIncluded && VAT_SCOPE.has(key)) {
-        const net = amount / 1.05
-        push("VAT Control", "taxPayable", -(amount - net))
-        amount = net
-      }
-      push(category.ledgerName, category.scheduleKey, -amount)
+      if (vatOf(t) === "incl") {
+        const { net, vat } = splitVat(amount)
+        push("VAT Control", "taxPayable", -vat)
+        push(category.ledgerName, category.scheduleKey, -net)
+      } else push(category.ledgerName, category.scheduleKey, -amount)
     }
+    // Foreign currency balances valued at the year-end rate: the change in value is an exchange gain or loss.
+    const exchange = Math.round((closingAed - openingAed - lines) * 100) / 100
+    if (foreign.length && Math.abs(exchange) >= 0.01) push("Exchange Gain / (Loss)", "exchange", -exchange)
     // Lines still under review are left in the bank so the figures balance; they are reported in the summary.
-    const pending = (totals.get("review")?.amount ?? 0) + (totals.get("reversed")?.amount ?? 0)
     if (Math.abs(pending) > 0.004) push("Suspense (bank lines under review)", "otherPayables", -pending)
     if (entryMode === "movement") push("Bank", "bank", closingAed - openingAed)
     else {
@@ -494,16 +536,84 @@ export function BankStatementImport({
   }
 
   async function saveRules() {
-    const rules = new Map(learned.map((r) => [r.pattern, r.category]))
-    for (const [pattern, category] of Object.entries(sessionRules)) rules.set(pattern, category)
+    const rules = new Map(learned.map((r) => [r.pattern, { ...r }]))
+    const put = (pattern: string, patch: Partial<LearnedRule>) => rules.set(pattern, { ...(rules.get(pattern) ?? { pattern, category: "review" }), ...patch })
+    for (const [pattern, category] of Object.entries(sessionRules)) put(pattern, { category })
     for (const t of inPeriod) {
       const chosen = overrides[t.id]
       const pattern = patternOf(t.description)
-      if (chosen && pattern && chosen !== "review") rules.set(pattern, chosen)
+      if (chosen && pattern && chosen !== "review") put(pattern, { category: chosen })
     }
-    const merged = [...rules.entries()].map(([pattern, category]) => ({ pattern, category })).slice(-3000)
-    if (merged.length !== learned.length || merged.some((r, i) => learned[i]?.pattern !== r.pattern || learned[i]?.category !== r.category)) await onSaveRules(merged)
+    for (const [pattern, vat] of Object.entries(vatRules)) if (rules.has(pattern) || sessionRules[pattern]) put(pattern, { vat })
+    for (const [pattern, party] of Object.entries(partyRules)) put(pattern, { party, category: rules.get(pattern)?.category ?? "sales" })
+    const merged = [...rules.values()].filter((r) => r.category !== "review" || r.vat).slice(-3000)
+    if (JSON.stringify(merged) !== JSON.stringify(learned)) await onSaveRules(merged)
   }
+  // Every choice is remembered for this payer or payee straight away, for later statements and years.
+  const rulesSignature = JSON.stringify([sessionRules, vatRules, partyRules])
+  const firstRules = useRef(true)
+  useEffect(() => {
+    if (restoring) return
+    if (firstRules.current) {
+      firstRules.current = false
+      return
+    }
+    const timer = setTimeout(() => void saveRules().catch(() => {}), 1500)
+    return () => clearTimeout(timer)
+  }, [rulesSignature, restoring]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sessionBody = useMemo(() => {
+    if (restoring) return ""
+    const session: BankSession = {
+      files: files
+        .filter((f) => f.status === "done" && f.parsed && f.parsed.accounts.length)
+        .map((f) => ({ id: f.id, name: f.name, bank: f.parsed!.bank, warnings: f.parsed!.warnings.slice(0, 10), accounts: f.parsed!.accounts })),
+      overrides,
+      sessionRules,
+      rates,
+      vatIncluded: false,
+      openingSource,
+      appliedAt,
+      version: 2,
+      vatChoices,
+      vatRules,
+      vatItems,
+    }
+    return JSON.stringify(session)
+  }, [restoring, files, overrides, sessionRules, rates, openingSource, appliedAt, vatChoices, vatRules, JSON.stringify(vatItems)]) // eslint-disable-line react-hooks/exhaustive-deps
+  const lastSaved = useRef("")
+  useEffect(() => {
+    if (!sessionBody || sessionBody === lastSaved.current) return
+    const timer = setTimeout(async () => {
+      setSaveState("saving")
+      try {
+        const response = await fetch(sessionUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: sessionBody })
+        if (!response.ok) throw new Error()
+        lastSaved.current = sessionBody
+        setSaveState("saved")
+      } catch {
+        setSaveState("error")
+      }
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [sessionBody, sessionUrl])
+  // Leaving the page with a change not yet saved: send it on the way out.
+  const pendingBody = useRef("")
+  useEffect(() => {
+    pendingBody.current = sessionBody
+  }, [sessionBody])
+  useEffect(() => {
+    const flush = () => {
+      const body = pendingBody.current
+      if (!body || body === lastSaved.current) return
+      fetch(sessionUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60000 }).catch(() => {})
+    }
+    window.addEventListener("pagehide", flush)
+    return () => {
+      window.removeEventListener("pagehide", flush)
+      flush()
+    }
+  }, [sessionUrl])
 
   const summaryText = (count: number) =>
     `${inPeriod.length} bank lines from ${accounts.length} account${accounts.length === 1 ? "" : "s"} are in the trial balance as ${count} balances.${reviewCount ? ` ${reviewCount} lines still under review are held in "Suspense (bank lines under review)".` : ""}${outside ? ` ${outside} lines outside ${formatLongDate(period.start)} – ${formatLongDate(period.end)} were left out.` : ""}`
@@ -543,7 +653,7 @@ export function BankStatementImport({
   }, [builtSignature]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const visible = inPeriod
-    .filter((t) => (view === "all" ? true : effective(t) === view))
+    .filter((t) => (view === "all" ? true : view === "vat" ? vatOf(t) === null && effective(t) !== "review" : effective(t) === view))
     .filter((t) => !query || `${t.description} ${t.amount}`.toLowerCase().includes(query.toLowerCase()))
   const ready = files.length > 0 && files.every((f) => f.status === "done" || f.status === "error")
 
@@ -660,30 +770,55 @@ export function BankStatementImport({
                 </span>
               </p>
             )}
-            {currencies.some((c) => c !== "AED") && (
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <span className="text-muted-foreground">Rates to AED (change to the rates you use):</span>
-                {currencies
-                  .filter((c) => c !== "AED")
-                  .map((c) => (
-                    <label key={c} className="flex items-center gap-1.5">
-                      <span className="font-medium">1 {c} =</span>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        min="0"
-                        className="h-9 w-24 rounded-lg border bg-white px-2 text-sm"
-                        value={rates[c] ?? ""}
-                        onChange={(e) =>
-                          setRates((r) => ({
-                            ...r,
-                            [c]: Number(e.target.value),
-                          }))
-                        }
-                      />
-                      <span className="text-muted-foreground">AED</span>
-                    </label>
-                  ))}
+            {foreign.length > 0 && (
+              <div className="space-y-2 rounded-xl border bg-muted/20 p-3 text-sm">
+                <p className="font-medium">Converted into {baseCurrency}</p>
+                <p className="text-xs text-muted-foreground">
+                  Each line uses the rate of its own day (European Central Bank reference rates; AED and the Gulf currencies at their fixed dollar pegs). Balances use the rates on {formatLongDate(period.start)} and {formatLongDate(period.end)}, and the
+                  difference goes to Exchange Gain / (Loss). Type a rate to use one rate for every line instead.
+                </p>
+                {foreign.map((c) => {
+                  const sr = seriesOf(c)
+                  const state = series[c]
+                  return (
+                    <div key={c} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <span className="w-12 font-semibold">{c}</span>
+                      {state === undefined ? (
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <Loader2 className="size-3.5 animate-spin" /> Fetching rates
+                        </span>
+                      ) : sr ? (
+                        <span className="text-muted-foreground">
+                          1 {c} = {rateAt(c, period.start).toLocaleString("en-US", { maximumFractionDigits: 6 })} {baseCurrency} on {formatLongDate(period.start)} ·{" "}
+                          {rateAt(c, period.end).toLocaleString("en-US", { maximumFractionDigits: 6 })} on {formatLongDate(period.end)}
+                          {sr.source === "fallback" ? <span className="ml-1 font-medium text-[#b42318]">(approximate: check or type the rate)</span> : sr.source === "peg" ? " (fixed peg)" : " (ECB)"}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-[#b42318]">No rate available: type the rate to use</span>
+                      )}
+                      <label className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">Own rate</span>
+                        <input
+                          type="number"
+                          step="0.000001"
+                          min="0"
+                          aria-label={`Rate for ${c} in ${baseCurrency}`}
+                          className="h-8 w-28 rounded-lg border bg-white px-2 text-sm"
+                          value={rates[c] ?? ""}
+                          placeholder="daily"
+                          onChange={(e) =>
+                            setRates((r) => {
+                              const next = { ...r }
+                              if (e.target.value === "" || !(Number(e.target.value) > 0)) delete next[c]
+                              else next[c] = Number(e.target.value)
+                              return next
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -700,26 +835,27 @@ export function BankStatementImport({
                 </div>
               </div>
 
-              <div className="panel space-y-4 p-5">
-                <h3 className="font-display font-semibold">How the money is classified</h3>
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {[...totals.entries()]
-                    .sort((a, b) => Math.abs(b[1].amount) - Math.abs(a[1].amount))
-                    .map(([key, total]) => {
-                      const category = catOf(key)
-                      return (
-                        <button key={key} type="button" onClick={() => setView(key)} className={cn("tile text-left", view === key && "tile-active")}>
-                          <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                            {category?.group ?? ""}
-                            <span>{total.count} lines</span>
-                          </span>
-                          <span className="mt-1 block text-sm font-semibold">{category?.label ?? key}</span>
-                          <span className={cn("block font-display text-lg tabular-nums", total.amount < 0 ? "text-[#b42318]" : "text-[#0d7d73]")}>AED {money(total.amount)}</span>
+              {vatRegistered && (vatToAnswer.length > 0 || unbilledSales.length > 0) && (
+                <div className="note note-warning items-start text-sm">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  <div className="space-y-1">
+                    {vatToAnswer.length > 0 && (
+                      <p>
+                        <strong>{vatToAnswer.length} line{vatToAnswer.length === 1 ? "" : "s"}</strong> with no matching invoice or bill: say whether each amount includes 5% VAT, so your VAT return is complete.{" "}
+                        <button type="button" className="font-semibold underline" onClick={() => setView("vat")}>
+                          Show them
                         </button>
-                      )
-                    })}
+                      </p>
+                    )}
+                    {unbilledSales.length > 0 && (
+                      <p>
+                        <strong>{unbilledSales.length} receipt{unbilledSales.length === 1 ? "" : "s"}</strong> sorted as sales have no invoice in Bayani. Create the invoice from the line, or mark whether the amount includes VAT.
+                      </p>
+                    )}
+                    <p className="text-xs opacity-80">Salaries, transfers between your accounts, owner and loan movements, government fees and tax payments are settled as no VAT automatically.</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {matches.length > 0 && (
                 <MatchPanel matches={matches} onLink={(t, c) => linkPayment(t as (typeof all)[number], c)} onDismiss={(id) => setDismissed((d) => new Set([...d, id]))} />
@@ -734,7 +870,12 @@ export function BankStatementImport({
                     <button type="button" role="tab" aria-selected={view === "all"} className="track-item" onClick={() => setView("all")}>
                       All lines ({inPeriod.length})
                     </button>
-                    {view !== "review" && view !== "all" && (
+                    {vatRegistered && (
+                      <button type="button" role="tab" aria-selected={view === "vat"} className="track-item" onClick={() => setView("vat")}>
+                        VAT to answer ({vatToAnswer.length})
+                      </button>
+                    )}
+                    {view !== "review" && view !== "all" && view !== "vat" && (
                       <button type="button" role="tab" aria-selected className="track-item">
                         {catOf(view)?.label}
                       </button>
@@ -771,6 +912,13 @@ export function BankStatementImport({
                         link={links.get(t.id)}
                         onUnlink={() => void unlink(t).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not unlink."))}
                         onChange={(category) => choose(t, category)}
+                        vat={vatOf(t)}
+                        vatAuto={vatRegistered && Boolean(lawVat(effective(t), catOf(effective(t))?.scheduleKey ?? "") || separateVat.has(t.id))}
+                        vatRegistered={vatRegistered}
+                        onVat={(answer) => setVat(t, answer)}
+                        baseCurrency={baseCurrency}
+                        rate={lineRate(t)}
+                        onCreateInvoice={books && company && t.amount > 0 && !links.get(t.id) && isSales(t) ? () => setInvoiceFor(t) : undefined}
                         onAddHead={async (head) => {
                           await onAddHead(head)
                           setCategory(t, `${HEAD_PREFIX}${head.name}`, true)
@@ -788,19 +936,18 @@ export function BankStatementImport({
 
               <div className="panel space-y-4 p-5">
                 <h3 className="font-display font-semibold">Add to the data input</h3>
-                {vatRegistered || vatIncluded ? (
-                  <label className="flex items-start gap-2 text-sm">
-                    <input type="checkbox" className="mt-1 accent-[var(--cobalt)]" checked={vatIncluded} onChange={(e) => setVatIncluded(e.target.checked)} />
-                    <span>
-                      Amounts include 5% VAT. Sales and standard-rated expenses are shown net, and the VAT goes to VAT Control. Salaries, bank charges, government fees, insurance
-                      and interest are left as they are.
-                    </span>
-                  </label>
-                ) : null}
+                {vatRegistered && (
+                  <p className="text-sm text-muted-foreground">
+                    VAT in these lines: {money(vatItems.filter((v) => v.kind === "output").reduce((t, v) => t + v.vat, 0))} on income and {money(vatItems.filter((v) => v.kind === "input").reduce((t, v) => t + v.vat, 0))}{" "}
+                    on expenses ({baseCurrency}), posted to VAT Control and listed for the VAT return.
+                    {vatToAnswer.length > 0 && ` ${vatToAnswer.length} lines without an answer are counted without VAT.`}
+                  </p>
+                )}
+                {missingRates.length > 0 && <p className="note note-alert text-sm">Type the rate for {missingRates.join(", ")} above: lines in that currency cannot be converted into {baseCurrency} without it.</p>}
                 {entryMode === "closing" && Math.abs(openingAed) > 0.5 && (
                   <label className="block text-sm">
                     <span className="text-muted-foreground">
-                      The accounts held AED {money(openingAed)} at {formatLongDate(period.start)}. Where did that money come from?
+                      The accounts held {baseCurrency} {money(openingAed)} at {formatLongDate(period.start)}. Where did that money come from?
                     </span>
                     <select
                       className="mt-1.5 h-10 w-full max-w-sm rounded-xl border bg-white px-3 text-sm"
@@ -824,7 +971,7 @@ export function BankStatementImport({
                   {appliedAt ? " These lines are already in the trial balance: every change you make here updates it and is saved automatically." : ""}
                 </p>
                 {error && <p className="note note-alert text-sm">{error}</p>}
-                <Button onClick={apply} disabled={applying || !ready || inPeriod.length === 0}>
+                <Button onClick={apply} disabled={applying || !ready || inPeriod.length === 0 || missingRates.length > 0}>
                   {applying ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
                   {appliedAt
                     ? `Update the ${new Date(period.end).getUTCFullYear()} trial balance now`
@@ -840,10 +987,49 @@ export function BankStatementImport({
           )}
         </>
       )}
+      {invoiceFor && company && books && (
+        <Modal title="Create the invoice for this receipt" onClose={() => setInvoiceFor(null)} wide>
+          <p className="mb-4 rounded-xl border bg-muted/30 p-3 text-sm">
+            {formatLongDate(invoiceFor.date)} · {invoiceFor.description} · <strong>{invoiceFor.currency} {money(invoiceFor.amount)}</strong>
+          </p>
+          <InvoiceForm
+            company={company}
+            books={books}
+            change={booksChange}
+            initial={null}
+            prefill={(() => {
+              const pattern = patternOf(invoiceFor.description)
+              const known = partyRules[pattern] ?? learned.find((r) => r.pattern === pattern)?.party
+              const clientId = known && books.clients.some((c) => c.id === known) ? known : undefined
+              const gross = Math.abs(invoiceFor.amount)
+              const standard = vatRegistered
+              return {
+                clientId,
+                clientName: clientId ? undefined : payerName(invoiceFor.description),
+                date: invoiceFor.date,
+                currency: invoiceFor.currency,
+                lines: [{ id: crypto.randomUUID(), item: "", description: "", quantity: 1, rate: Math.round((standard ? gross / 1.05 : gross) * 100) / 100, vat: standard ? "standard" : "outOfScope" }],
+              }
+            })()}
+            onDone={async (id, invoice) => {
+              const t = invoiceFor
+              const gross = Math.round(Math.abs(t.amount) * 100) / 100
+              const base = Math.round(Math.abs(t.amount * lineRate(t)) * 100) / 100
+              await booksChange({
+                action: "payment",
+                payment: { id: crypto.randomUUID(), kind: "invoice", docId: id, date: t.date, amount: gross, baseAmount: base, method: "bankLine", bankLine: { id: t.id, date: t.date, amount: t.amount, description: t.description.slice(0, 2000) }, note: "" },
+              })
+              const pattern = patternOf(t.description)
+              if (pattern) setPartyRules((r) => ({ ...r, [pattern]: invoice.clientId }))
+              setInvoiceFor(null)
+            }}
+          />
+        </Modal>
+      )}
       {prompt && (
         <SpreadPrompt
           prompt={prompt}
-          amount={Math.abs(prompt.t.amount * rate(prompt.t.currency)) / (prompt.kind === "asset" && vatIncluded ? 1.05 : 1)}
+          amount={Math.abs(prompt.t.amount * lineRate(prompt.t)) / (prompt.kind === "asset" && vatOf(prompt.t as (typeof all)[number]) === "incl" ? 1.05 : 1)}
           label={catOf(prompt.category)?.ledgerName ?? ""}
           onClose={() => setPrompt(null)}
           onFull={() => {
@@ -877,6 +1063,15 @@ export function BankStatementImport({
 }
 
 type Line = CategorisedTransaction & { bank: string }
+
+/** The payer's name from a receipt's narrative, as a starting point for a new client. */
+function payerName(description: string) {
+  const m = description.match(/(?:from|b\/o|by order of|remitter|ordering customer)[:\s]+([A-Z][A-Z0-9&.,' -]{2,60}?)(?:\s+(?:ref|inv|invoice|ac|a\/c|iban|\d{4,})|$)/i)
+  const name = (m?.[1] ?? description.replace(/\b(inward|outward|tt|transfer|trf|remittance|credit|ipp|uaefts|aani|swift|ref|payment|received|deposit)\b/gi, " ").replace(/[^A-Za-z&.' -]+/g, " "))
+    .replace(/\s+/g, " ")
+    .trim()
+  return name.slice(0, 80)
+}
 
 function MatchPanel({
   matches,
@@ -1164,7 +1359,21 @@ function TransactionRow({
   onAddHead,
   link,
   onUnlink,
+  vat,
+  vatAuto,
+  vatRegistered,
+  onVat,
+  baseCurrency,
+  rate,
+  onCreateInvoice,
 }: {
+  vat?: VatAnswer | null
+  vatAuto?: boolean
+  vatRegistered?: boolean
+  onVat?: (answer: VatAnswer) => void
+  baseCurrency?: string
+  rate?: number
+  onCreateInvoice?: () => void
   t: CategorisedTransaction & { bank: string }
   category: string
   heads: Category[]
@@ -1220,6 +1429,41 @@ function TransactionRow({
             setAdding(true)
           }}
         />
+      )}
+      {((baseCurrency && t.currency !== baseCurrency) || (vatRegistered && !link && category !== "review" && !vatAuto) || onCreateInvoice) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs sm:col-span-4 sm:pl-[6.5rem]">
+          {baseCurrency && t.currency !== baseCurrency && (
+            <span className="text-muted-foreground">
+              {t.currency} {money(t.amount)} × {(rate ?? 0).toLocaleString("en-US", { maximumFractionDigits: 6 })} = <strong className="text-foreground">{baseCurrency} {money(t.amount * (rate ?? 0))}</strong>
+            </span>
+          )}
+          {vatRegistered && !link && category !== "review" && !vatAuto && (
+            <span className={cn("inline-flex items-center gap-1 rounded-full border p-0.5", vat === null && "border-[var(--saffron)] bg-[var(--saffron-wash)]")} role="group" aria-label={`VAT for ${t.description}`}>
+              {vat === null && <span className="px-1.5 font-medium text-[#6b4500]">VAT?</span>}
+              {(
+                [
+                  ["incl", "Includes 5% VAT"],
+                  ["none", "No VAT"],
+                ] as const
+              ).map(([answer, label]) => (
+                <button
+                  key={answer}
+                  type="button"
+                  aria-pressed={vat === answer}
+                  onClick={() => onVat?.(answer)}
+                  className={cn("rounded-full px-2.5 py-1", vat === answer ? "bg-[var(--ink)] font-semibold text-white" : "hover:bg-muted")}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
+          )}
+          {onCreateInvoice && (
+            <button type="button" onClick={onCreateInvoice} className="inline-flex items-center gap-1 rounded-full border border-[var(--cobalt)]/40 px-2.5 py-1 font-medium text-[var(--cobalt)] hover:bg-[var(--cobalt-wash)]">
+              No invoice found · Create invoice
+            </button>
+          )}
+        </div>
       )}
       {adding && (
         <form

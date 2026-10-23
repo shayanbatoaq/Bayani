@@ -20,6 +20,12 @@ const id = z.string().min(1).max(60)
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date.")
 const money = z.number().finite().min(-1e12).max(1e12)
 const text = (max: number) => z.string().trim().max(max)
+/** A document in another currency: its currency, units of the base currency per unit, and AED per unit (shown on UAE tax invoices). */
+const currencyFields = {
+  currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+  rate: z.number().finite().positive().max(1e6).default(1),
+  aedRate: z.number().finite().positive().max(1e6).optional(),
+}
 
 export const partySchema = z.object({
   id,
@@ -70,6 +76,7 @@ export const invoiceSchema = z.object({
   lines: z.array(lineSchema).min(1, "Add at least one line.").max(200),
   notes: text(1000).default(""),
   createdAt: z.string().max(40).default(""),
+  ...currencyFields,
 })
 export type Invoice = z.infer<typeof invoiceSchema>
 
@@ -97,6 +104,7 @@ export const billSchema = z.object({
   net: money,
   vat: money,
   vatTreatment: vatTreatmentSchema.default("standard"),
+  ...currencyFields,
   payment: z.enum(["bank", "card", "cash", "credit"]).default("bank"),
   description: text(2000).default(""),
   attachment: attachmentSchema.nullable().default(null),
@@ -116,7 +124,10 @@ export const paymentSchema = z.object({
   kind: z.enum(["invoice", "bill"]),
   docId: id,
   date,
+  /** In the document's currency. */
   amount: z.number().finite().positive().max(1e12),
+  /** What was actually received or paid in the base currency, when it differs from amount × the document's rate (exchange difference). */
+  baseAmount: z.number().finite().positive().max(1e14).optional(),
   method: z.enum(["bankLine", "bank", "cash", "card"]),
   bankLine: bankLineRefSchema.nullable().default(null),
   note: text(300).default(""),

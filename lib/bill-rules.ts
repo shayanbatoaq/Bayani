@@ -1,5 +1,6 @@
 import { categorise, categoryByKey } from "./bank-categories"
 import { normaliseDate } from "./document-rules"
+import { currencyIn } from "./fx"
 
 /**
  * Reads a supplier bill, receipt or purchase invoice from its text (PDF text layer or OCR).
@@ -11,6 +12,8 @@ import { normaliseDate } from "./document-rules"
  * combination proves out, the amounts are left for the user and flagged, never guessed.
  */
 export type BillFields = {
+  /** Currency the bill is in, when the document shows one. */
+  currency?: string
   supplier?: string
   address?: string
   vendorTrn?: string
@@ -198,6 +201,8 @@ export function readBill(text: string, options: { ownTrn?: string; ownName?: str
   const anyDate = dated?.[1] ?? joined.match(/\b([0-9]{1,2}[/.\-][0-9]{1,2}[/.\-][0-9]{4}|[0-9]{1,2}[\s\-](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s\-,]+[0-9]{4})\b/i)?.[1]
   if (anyDate && normaliseDate(anyDate)) out.date = normaliseDate(anyDate)
 
+  const currency = currencyIn(joined)
+  if (currency) out.currency = currency
   const solved = solveAmounts(all)
   let amountsState: BillCheck["amounts"] = "none"
   if (solved) {

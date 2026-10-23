@@ -16,6 +16,7 @@ import {
   type FinancialRecord,
   type OpeningEquity,
 } from "@/lib/financial-statements"
+import type { LearnedRule } from "@/lib/bank-categories"
 import { toPlain, type CustomHead } from "@/lib/ledger-heads"
 import { isBookRow } from "@/lib/books-engine"
 import { closingRowsFor, priorYearOf, statementsFor, type EntryMode, type PriorYear } from "@/lib/movement"
@@ -82,7 +83,7 @@ export function FinancialDataInput() {
         clientId: company.id,
         clientName: company.name,
         year,
-        currency: "AED",
+        currency: company.baseCurrency ?? "AED",
         openingEquity,
         rows: rows.map((row) => ({ id: row.id, ledgerName: row.ledgerName, amount: row.amount, scheduleKey: row.scheduleKey ?? "" })),
         entryMode,
@@ -150,7 +151,7 @@ export function FinancialDataInput() {
             clientId: company.id,
             clientName: company.name,
             year: next,
-            currency: "AED",
+            currency: company.baseCurrency ?? "AED",
             openingEquity: record.openingEquity,
             rows: record.rows.filter((row) => !isBookRow(row)),
             entryMode: nextMode,
@@ -172,7 +173,7 @@ export function FinancialDataInput() {
     setCompanies((current) => current.map((item) => (item.id === company.id ? data.company : item)))
   }
 
-  async function saveBankRules(rules: { pattern: string; category: string }[]) {
+  async function saveBankRules(rules: LearnedRule[]) {
     if (!company) return
     const response = await fetch("/api/companies/extras", {
       method: "POST",
@@ -349,6 +350,7 @@ export function FinancialDataInput() {
             customHeads={company.customHeads}
             onAddCustomHead={addCustomHead}
             entryMode={entryMode}
+            currency={company.baseCurrency ?? "AED"}
             statement={{
               companyName: company.name,
               period: period!,
@@ -356,11 +358,13 @@ export function FinancialDataInput() {
               learned: company.bankRules ?? [],
               onSaveRules: saveBankRules,
               sessionKey: { companyId: company.id, year },
+              company,
             }}
           />
 
           {entryMode === "movement" && prior && resolved && (
             <ClosingBalances
+              currency={company.baseCurrency ?? "AED"}
               year={year}
               prior={prior}
               movements={preview!.rows}
@@ -580,12 +584,14 @@ function EntryModePicker({
 
 /** Carried balance + movement = closing, for every balance sheet head. */
 function ClosingBalances({
+  currency,
   year,
   prior,
   movements,
   closing,
   customHeads,
 }: {
+  currency: string
   year: number
   prior: PriorYear
   movements: FinancialLedger[]
@@ -609,9 +615,9 @@ function ClosingBalances({
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="py-2">Head</th>
-              <th className="py-2 text-right">From {year - 1} (AED)</th>
-              <th className="py-2 text-right">Movement (AED)</th>
-              <th className="py-2 text-right">Closing (AED)</th>
+              <th className="py-2 text-right">From {year - 1} ({currency})</th>
+              <th className="py-2 text-right">Movement ({currency})</th>
+              <th className="py-2 text-right">Closing ({currency})</th>
             </tr>
           </thead>
           <tbody>
