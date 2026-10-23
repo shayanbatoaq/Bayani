@@ -188,3 +188,12 @@ test("an invoice in another currency is booked in the base currency, with the ex
   assert.equal(get(z, "Exchange Gain / (Loss)"), -105)
   assert.equal(sum(z), 0)
 })
+
+test("a client already on the list is found from a bank line or a typed name", async () => {
+  const { findParty } = await jiti.import("../lib/books-engine.ts")
+  const clients = [{ id: "a", name: "Harbour View Trading LLC" }, { id: "b", name: "Atlas Imports Ltd" }]
+  assert.equal(findParty(clients, "INWARD TT FROM HARBOUR VIEW TRADING L L C REF 778")?.id, "a")
+  assert.equal(findParty(clients, "harbour view trading llc")?.id, "a")
+  assert.equal(findParty(clients, "ATLAS IMPORTS")?.id, "b")
+  assert.equal(findParty(clients, "Blue Sea LLC"), undefined)
+})

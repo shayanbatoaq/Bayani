@@ -37,7 +37,7 @@ import {
   type Line,
   type VatTreatment,
 } from "@/lib/books"
-import { invoiceStatus } from "@/lib/books-engine"
+import { findParty, invoiceStatus } from "@/lib/books-engine"
 import type { Company } from "@/lib/company"
 import { cn } from "@/lib/utils"
 
@@ -409,8 +409,10 @@ export function InvoiceForm({
   const vatRegistered = Boolean(company.vat.trn)
   const base = company.baseCurrency ?? "AED"
   const auto = books.settings.numbering === "auto"
-  const [clientId, setClientId] = useState(initial?.clientId ?? prefill?.clientId ?? "")
-  const [addingClient, setAddingClient] = useState(!books.clients.length || Boolean(prefill && !prefill.clientId && prefill.clientName))
+  // A receipt from a client already on the list picks that client.
+  const matched = prefill && !prefill.clientId && prefill.clientName ? findParty(books.clients, prefill.clientName) : undefined
+  const [clientId, setClientId] = useState(initial?.clientId ?? prefill?.clientId ?? matched?.id ?? "")
+  const [addingClient, setAddingClient] = useState(!books.clients.length || Boolean(prefill && !prefill.clientId && !matched && prefill.clientName))
   const [date, setDate] = useState(initial?.date ?? prefill?.date ?? today())
   const [dueDate, setDueDate] = useState(initial?.dueDate ?? (prefill ? prefill.date : addDays(today(), books.settings.paymentDays)))
   const [number, setNumber] = useState(initial?.number ?? (auto ? nextInvoiceNumber(books) : ""))
@@ -462,12 +464,42 @@ export function InvoiceForm({
       </p>
       {addingClient ? (
         <div className="rounded-xl border p-4">
+          {books.clients.length > 0 && (
+            <div className="mb-4 space-y-1.5">
+              <p className="text-[13px] font-medium">Choose a client already on your list</p>
+              <select
+                aria-label="Existing client"
+                className={selectClass}
+                value=""
+                onChange={(e) => {
+                  if (!e.target.value) return
+                  setClientId(e.target.value)
+                  setAddingClient(false)
+                }}
+              >
+                <option value="">Choose…</option>
+                {books.clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <p className="pt-2 text-xs text-muted-foreground">or add a new client:</p>
+            </div>
+          )}
           <p className="mb-3 font-medium">New client</p>
           <PartyForm
             kind="client"
             initial={prefill?.clientName ? { name: prefill.clientName } : undefined}
             onCancel={() => setAddingClient(false)}
             onSave={async (party) => {
+              // Already on the list: use it rather than adding it twice.
+              const known = findParty(books.clients, party.name)
+              if (known) {
+                setClientId(known.id)
+                setAddingClient(false)
+                return
+              }
               await change({ action: "party", kind: "client", party })
               setClientId(party.id)
               setAddingClient(false)
