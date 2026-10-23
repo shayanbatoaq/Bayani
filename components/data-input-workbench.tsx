@@ -143,6 +143,7 @@ export function DataInputWorkbench({
     onSaveRules: (rules: LearnedRule[]) => Promise<void>
     sessionKey: { companyId: string; year: number }
     company?: Company
+    onOtherYears?: (years: number[]) => void
   }
 }) {
   const fileInput = useRef<HTMLInputElement>(null)
@@ -529,6 +530,7 @@ export function DataInputWorkbench({
           onSaveRules={statement.onSaveRules}
           sessionKey={statement.sessionKey}
           company={statement.company}
+          onOtherYears={statement.onOtherYears}
           baseCurrency={currency}
           customHeads={customHeads}
           onAddHead={onAddCustomHead}

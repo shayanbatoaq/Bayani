@@ -58,15 +58,32 @@ export async function readStatementFile(file: File, password?: string): Promise<
       return { ...parsed, warnings: ["This PDF is a scanned image with no text. Download the statement from online banking as a PDF or Excel file instead."] }
     return parsed
   }
-  if (extension === "xlsx" || extension === "csv") {
-    const { readTrialBalance } = await import("./import-trial-balance")
-    const sheets = await readTrialBalance(file)
-    for (const sheet of sheets) {
-      const parsed = parseTableStatement(sheet.data, file.name)
-      if (parsed.accounts.length) return parsed
-    }
-    return parseTableStatement(sheets[0]?.data ?? [], file.name)
+  if (extension === "xlsx" || extension === "csv" || extension === "xls" || extension === "xlsm" || extension === "ods") {
+    const sheets = await readSheets(file, extension)
+    // Every sheet is read: some banks put each account (or each month) on its own sheet.
+    const parsed = sheets.map((sheet) => parseTableStatement(sheet, file.name))
+    const accounts = parsed.flatMap((p) => p.accounts)
+    if (accounts.length) return { bank: parsed.find((p) => p.accounts.length)!.bank, accounts, warnings: parsed.flatMap((p) => (p.accounts.length ? p.warnings : [])) }
+    return parsed[0] ?? parseTableStatement([], file.name)
   }
-  if (extension === "xls") throw new Error(`${file.name}: open it in Excel and save it as .xlsx, then upload it again.`)
-  throw new Error(`${file.name}: upload the statement as PDF, XLSX or CSV.`)
+  throw new Error(`${file.name}: upload the statement as PDF, Excel (XLSX or XLS) or CSV.`)
+}
+
+/**
+ * The rows of every sheet. XLSX and CSV are read directly; older XLS files, and the HTML or XML
+ * "Excel" files many banks export, go through SheetJS.
+ */
+async function readSheets(file: File, extension: string): Promise<unknown[][][]> {
+  if (extension === "xlsx" || extension === "csv") {
+    try {
+      const { readTrialBalance } = await import("./import-trial-balance")
+      const sheets = await readTrialBalance(file)
+      if (sheets.some((sheet) => sheet.data.length)) return sheets.map((sheet) => sheet.data)
+    } catch {
+      // fall through to SheetJS
+    }
+  }
+  const XLSX = await import("xlsx")
+  const book = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array", cellDates: true, dense: true })
+  return book.SheetNames.map((name) => XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, raw: true, defval: null, blankrows: false }))
 }

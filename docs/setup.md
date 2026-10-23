@@ -45,3 +45,9 @@ Companies are saved in Supabase for signed-in users and in the local ignored `.d
 - Each company has a base currency (AED, USD, GBP or EUR); the books, data input and reports are kept in it.
 - Exchange rates come from the European Central Bank reference rates via `api.frankfurter.dev` (no key needed); AED and the Gulf currencies use their fixed US dollar pegs. When the service cannot be reached an approximate rate is used and marked as such. The server needs outbound HTTPS to that host.
 - Reports can be shown and downloaded in another currency (IAS 21: balance sheet at the closing rate, profit and loss at the average rate, the difference in equity). Corporate tax is always computed in AED.
+
+## Bank statements
+
+- Statements can be added at once or over time, under any year: months are put in date order, overlapping statements of one account are joined and repeated lines counted once, and lines dated in another financial year are posted to that year (unless that year's figures were entered another way).
+- Excel exports (XLSX, XLS, and the HTML or XML files some banks name .xls) and CSV are read on the device; every sheet is read.
+- Statements the rules cannot read (scanned PDFs, unusual layouts) are read from their page images by AI when `OPENAI_API_KEY` (or `OPENROUTER_API_KEY`) is set; `OPENAI_STATEMENT_MODEL` chooses the model (default gpt-4.1). Every line is still checked against the running balance.

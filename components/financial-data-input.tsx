@@ -359,6 +359,12 @@ export function FinancialDataInput() {
               onSaveRules: saveBankRules,
               sessionKey: { companyId: company.id, year },
               company,
+              // Lines of other years were posted there: show those years as saved.
+              onOtherYears: () =>
+                fetch("/api/financial-data", { cache: "no-store" })
+                  .then((r) => r.json())
+                  .then((all) => all.records && setRecords(all.records))
+                  .catch(() => {}),
             }}
           />
 

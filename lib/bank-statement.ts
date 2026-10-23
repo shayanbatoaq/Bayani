@@ -46,7 +46,7 @@ export type ParsedStatement = {
   warnings: string[]
 }
 
-type Role = "date" | "valueDate" | "description" | "debit" | "credit" | "amount" | "balance" | "ref" | "serial" | "other"
+type Role = "date" | "valueDate" | "description" | "debit" | "credit" | "amount" | "balance" | "ref" | "serial" | "drcr" | "other"
 type Column = { role: Role; left: number; right: number; center: number; label: string }
 
 const AMOUNT_ROLES: Role[] = ["debit", "credit", "amount", "balance"]
@@ -141,7 +141,30 @@ function roleOf(label: string): Role {
   return "other"
 }
 
+/**
+ * Spreadsheet headings vary more than printed ones ("Tran Dt", "Date & Time", "Withdrawals (AED)",
+ * "Beneficiary / Description"): when no exact heading matches, the words in the cell decide.
+ */
+function looseRoleOf(label: string): Role {
+  const exact = roleOf(label)
+  if (exact !== "other") return exact
+  const text = label.replace(ARABIC, " ").replace(/\s+/g, " ").trim().toLowerCase()
+  if (!text || text.length > 40) return "other"
+  if (/\bvalue\b.*\b(date|dt)\b/.test(text)) return "valueDate"
+  if (/\b(date|dt)\b/.test(text) && !/\b(due|expiry|print|statement|from|to)\b/.test(text)) return "date"
+  if (/\b(dr ?\/ ?cr|cr ?\/ ?dr|d ?\/ ?c|c ?\/ ?d|debit ?\/ ?credit (indicator|flag|type)|transaction type|txn type|type)\b/.test(text)) return "drcr"
+  if (/balance/.test(text)) return "balance"
+  if (/\b(withdrawals?|debits?|money out|paid out|dr amount|outflow)\b/.test(text)) return "debit"
+  if (/\b(deposits?|credits?|money in|paid in|cr amount|inflow)\b/.test(text)) return "credit"
+  if (/\bamount\b/.test(text)) return "amount"
+  if (/\b(description|narration|narrative|particulars|details|remarks|memo|beneficiary|transaction)\b/.test(text)) return "description"
+  if (/\b(ref|reference|cheque|chq)\b/.test(text)) return "ref"
+  return "other"
+}
+
 type Line = { page: number; y: number; items: TextItem[]; text: string }
+const isDebitFlag = (v: string) => /^(dr|d|debit|db|withdrawal|out|-)$/i.test(v.trim().replace(/\.$/, ""))
+const isCreditFlag = (v: string) => /^(cr|c|credit|deposit|in|\+)$/i.test(v.trim().replace(/\.$/, ""))
 
 function toLines(page: TextPage, pageNo: number): Line[] {
   const items = page.items.filter((i) => i.s.trim()).sort((a, b) => a.y - b.y || a.x - b.x)
@@ -636,7 +659,9 @@ function cellDate(value: unknown): string | null {
     const d = new Date(Date.UTC(1899, 11, 30) + value * 86400000)
     return d.toISOString().slice(0, 10)
   }
-  return parseDate(cellText(value))
+  const text = cellText(value)
+  // "03/01/2025 10:22" or "2025-01-03T10:22:00": the date part.
+  return parseDate(text) ?? parseDate(text.split(/[ T]/)[0] ?? "")
 }
 
 /** Rows of an Excel or CSV export (first row with recognisable headings is the header). */
@@ -644,7 +669,7 @@ export function parseTableStatement(rows: unknown[][], name = ""): ParsedStateme
   let headerRow = -1
   let roles: Role[] = []
   for (let i = 0; i < Math.min(rows.length, 60); i++) {
-    const r = rows[i].map((c) => roleOf(cellText(c)))
+    const r = rows[i].map((c) => looseRoleOf(cellText(c)))
     const set = new Set(r)
     if (set.has("date") && ((set.has("debit") && set.has("credit")) || set.has("amount"))) {
       headerRow = i
@@ -658,7 +683,11 @@ export function parseTableStatement(rows: unknown[][], name = ""): ParsedStateme
   const col = (role: Role) => roles.indexOf(role)
   const descriptionCols = roles.map((role, k) => (role === "description" || role === "ref" ? k : -1)).filter((k) => k >= 0)
   const context = rows.slice(0, headerRow).map((r) => r.map(cellText).join(" ")).join("\n")
-  const currency = context.match(/(?:currency|ccy)\s*:?\s*([A-Z]{3})\b/i)?.[1]?.toUpperCase() ?? "AED"
+  // The currency: stated above the table, or in the amount headings ("Balance (USD)").
+  const headings = rows[headerRow].map(cellText).join(" ")
+  const fromHeadings = headings.match(/\(\s*([A-Z]{3})\s*\)|\b(AED|USD|EUR|GBP|SAR|QAR|OMR|KWD|BHD|INR|PKR|CHF|JPY|CNY|CAD|AUD|SGD|HKD)\b/)
+  const stated = context.match(/(?:currency|ccy)\s*:?\s*([A-Z]{3})\b/i)?.[1]?.toUpperCase()
+  const currency = [stated, fromHeadings?.[1], fromHeadings?.[2]].find((c) => c && CURRENCIES.includes(c)) ?? "AED"
   const out: RawRow[] = []
   let statedOpening: number | null = null
   for (const r of rows.slice(headerRow + 1)) {
@@ -672,7 +701,13 @@ export function parseTableStatement(rows: unknown[][], name = ""): ParsedStateme
     if (!date) continue
     const debit = col("debit") >= 0 ? cellMoney(r[col("debit")]) : null
     const credit = col("credit") >= 0 ? cellMoney(r[col("credit")]) : null
-    const amount = col("amount") >= 0 ? cellMoney(r[col("amount")]) : null
+    let amount = col("amount") >= 0 ? cellMoney(r[col("amount")]) : null
+    // A separate Dr/Cr (or Debit/Credit) column gives the amount its sign.
+    if (amount !== null && col("drcr") >= 0) {
+      const flag = cellText(r[col("drcr")])
+      if (isDebitFlag(flag)) amount = -Math.abs(amount)
+      else if (isCreditFlag(flag)) amount = Math.abs(amount)
+    }
     if (debit === null && credit === null && amount === null) continue
     out.push({
       date,
@@ -686,7 +721,7 @@ export function parseTableStatement(rows: unknown[][], name = ""): ParsedStateme
   }
   const opening = context.match(/opening balance\s*:?\s*([-\d,.]+)/i)?.[1]
   if (opening) statedOpening = parseMoney(opening)
-  const accountNo = context.match(/\bAE\d{21}\b/)?.[0] ?? ""
+  const accountNo = context.match(/\bAE\d{21}\b/)?.[0] ?? context.match(/(?:account|a\/c)\s*(?:no\.?|number|#)?\s*[:.\-]?\s*(\d[\d\- ]{3,24}\d)/i)?.[1]?.replace(/[\s-]/g, "") ?? ""
   return { bank: detectBank(`${name}\n${context}`), accounts: [reconcile(out, currency, accountNo, statedOpening, null)].filter((a) => a.transactions.length), warnings: [] }
 }
 
@@ -756,6 +791,25 @@ function runsOn(a: StatementPart, b: StatementPart) {
 }
 
 /**
+ * Two statements of one account that overlap (January–March and March–May, or the same months
+ * downloaded twice): they share printed lines, or the later one opens on the earlier one's
+ * balance at that date.
+ */
+function overlaps(a: StatementPart, b: StatementPart) {
+  if (a.account.currency !== b.account.currency) return false
+  if (a.bank !== b.bank && a.bank !== "Bank" && b.bank !== "Bank") return false
+  if (!a.account.transactions.length || !b.account.transactions.length) return false
+  if (a.account.to < b.account.from || b.account.to < a.account.from) return false
+  const key = (t: BankTransaction) => `${t.date}|${t.amount}|${t.balance}|${t.description}`
+  const keys = new Set(a.account.transactions.filter((t) => t.balance !== null).map(key))
+  if (b.account.transactions.some((t) => t.balance !== null && keys.has(key(t)))) return true
+  const [first, second] = a.account.from <= b.account.from ? [a, b] : [b, a]
+  const before = first.account.transactions.filter((t) => t.date < second.account.from && t.balance !== null).pop()
+  return Boolean(before && second.account.opening !== null && close(before.balance!, second.account.opening, 0.011))
+}
+const belongs = (a: StatementPart, b: StatementPart) => runsOn(a, b) || overlaps(a, b)
+
+/**
  * Statements of the same account uploaded in any order (February, May, January…) are put
  * in date order and joined into one account: opening from the earliest, closing from the
  * latest, lines in date order, lines repeated across overlapping statements counted once,
@@ -772,7 +826,7 @@ export function mergeStatements(parts: StatementPart[]): MergedAccount[] {
   for (let changed = true; changed && unplaced.length; ) {
     changed = false
     for (const part of [...unplaced]) {
-      const group = groups.find((g) => g.some((member) => runsOn(member, part)))
+      const group = groups.find((g) => g.some((member) => belongs(member, part)))
       if (!group) continue
       group.push(part)
       unplaced = unplaced.filter((p) => p !== part)
@@ -781,7 +835,7 @@ export function mergeStatements(parts: StatementPart[]): MergedAccount[] {
   }
   // Left over: chained to each other where balances run on, otherwise an account of their own.
   for (const part of unplaced) {
-    const group = groups.find((g) => g.every((member) => !named(member)) && g.some((member) => runsOn(member, part)))
+    const group = groups.find((g) => g.every((member) => !named(member)) && g.some((member) => belongs(member, part)))
     if (group) group.push(part)
     else groups.push([part])
   }
