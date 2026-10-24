@@ -8,6 +8,9 @@ import { AED_PER_USD, ECB, FALLBACK_AED_PER, PEGGED_AED_PER, round6, type RateQu
  */
 type AedSeries = { source: RateSource; rates: Record<string, number> }
 const cache = new Map<string, Promise<AedSeries>>()
+const CACHE_LIMIT = 500
+/** Longest period one request may cover: a financial year with neighbouring years' statement lines. */
+export const MAX_SPAN_DAYS = 1100
 const today = () => new Date().toISOString().slice(0, 10)
 const back = (date: string, days: number) => {
   const d = new Date(`${date}T00:00:00Z`)
@@ -20,7 +23,9 @@ function aedSeries(currency: string, start: string, end: string): Promise<AedSer
   const s = start > today() ? today() : start
   const e = end > today() ? today() : end
   const key = `${currency}:${s}:${e}`
-  if (!cache.has(key))
+  if (!cache.has(key)) {
+    // Oldest first: a Map keeps insertion order.
+    if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value!)
     cache.set(
       key,
       (async (): Promise<AedSeries> => {
@@ -47,6 +52,7 @@ function aedSeries(currency: string, start: string, end: string): Promise<AedSer
         }
       })(),
     )
+  }
   return cache.get(key)!
 }
 
@@ -59,14 +65,27 @@ const at = (series: AedSeries, date: string) => {
   }
   return v
 }
+
+/** The last published rate on or before each of the (sorted) dates, in one pass. */
+const along = (series: AedSeries, dates: string[]) => {
+  const days = Object.keys(series.rates).sort()
+  let i = 0
+  let v = series.rates[days[0]]
+  return dates.map((date) => {
+    while (i < days.length && days[i] <= date) v = series.rates[days[i++]]
+    return v
+  })
+}
 const worst = (a: RateSource, b: RateSource): RateSource => (a === "fallback" || b === "fallback" ? "fallback" : a === "ECB" || b === "ECB" ? "ECB" : "peg")
 
 /** Units of `to` per unit of `from`, for every day from start to end. */
 export async function series(from: string, to: string, start: string, end: string): Promise<RateSeries> {
   const [a, b] = await Promise.all([aedSeries(from, start, end), aedSeries(to, start, end)])
-  const days = new Set([...Object.keys(a.rates), ...Object.keys(b.rates), start])
+  const first = back(start, 7)
+  const days = [...new Set([...Object.keys(a.rates), ...Object.keys(b.rates), start])].filter((d) => d >= first && d <= end).sort()
+  const [ra, rb] = [along(a, days), along(b, days)]
   const rates: Record<string, number> = {}
-  for (const d of [...days].sort()) if (d >= back(start, 7) && d <= end) rates[d] = round6(at(a, d) / at(b, d))
+  days.forEach((d, i) => (rates[d] = round6(ra[i] / rb[i])))
   return { from, to, source: worst(a.source, b.source), rates }
 }
 

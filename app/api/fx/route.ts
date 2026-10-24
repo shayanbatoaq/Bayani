@@ -1,4 +1,4 @@
-import { quote, series } from "@/lib/fx-server"
+import { MAX_SPAN_DAYS, quote, series } from "@/lib/fx-server"
 
 export const runtime = "nodejs"
 
@@ -11,6 +11,9 @@ export async function GET(request: Request) {
   const date = q.get("date") ?? new Date().toISOString().slice(0, 10)
   const start = q.get("start")
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (start && !/^\d{4}-\d{2}-\d{2}$/.test(start))) return Response.json({ error: "Invalid date." }, { status: 400 })
+  const span = start ? (Date.parse(date) - Date.parse(start)) / 86_400_000 : 0
+  if (Number.isNaN(Date.parse(date)) || Number.isNaN(span) || span < 0 || span > MAX_SPAN_DAYS)
+    return Response.json({ error: "Choose a period of at most three years." }, { status: 400 })
   try {
     if (q.get("series") && start) return Response.json({ series: await series(from, to, start, date) }, { headers: { "Cache-Control": "private, max-age=3600" } })
     return Response.json({ quote: await quote(from, to, date, start ? { start } : undefined) }, { headers: { "Cache-Control": "private, max-age=3600" } })

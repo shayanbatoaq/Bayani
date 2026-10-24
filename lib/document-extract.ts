@@ -107,12 +107,12 @@ const same = (a: unknown, b: unknown) =>
  * fields the rules did not find and reports any field where the two disagree;
  * it never silently overwrites a value read by the rules.
  */
-export async function extractCompany(docs: DocInput[]): Promise<ExtractionReport & { ai: "used" | "unavailable" | "failed" }> {
+export async function extractCompany(docs: DocInput[], useAi = true): Promise<ExtractionReport & { ai: "used" | "unavailable" | "failed" }> {
   const report = extractCompanyDetails(docs)
   let ai: ExtractedCompany | null = null
   let status: "used" | "unavailable" | "failed" = "unavailable"
   try {
-    ai = await readWithAi(docs)
+    ai = useAi ? await readWithAi(docs) : null
     if (ai) status = "used"
   } catch (error) {
     console.error("AI document reading failed", error)

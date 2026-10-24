@@ -24,7 +24,9 @@ Profile → New company → Upload documents reads the Trade License, MOA / Arti
 - With `OPENAI_API_KEY` (or `OPENROUTER_API_KEY`) set, documents are sent to the model for extraction. Text-based PDFs are sent as text; scanned PDFs and images are sent as files. Override the model with `OPENAI_EXTRACT_MODEL` / `OPENROUTER_EXTRACT_MODEL` (default `gpt-4.1-mini`).
 - Without a key, text-based PDFs are parsed with built-in rules. Scanned documents need the AI key, or the details are entered manually.
 
-Extracted values always open in the form for review before saving. Uploaded files are not stored; only the file names are recorded on the company.
+Extracted values always open in the form for review before saving. AI only fills what the document rules did not find; it never overrides them, and values it read are confirmed by the user.
+
+AI calls are limited per account per day: 300 bill readings, 300 statement page pairs and 60 company document readings, counted per server instance (`lib/ai-allowance.ts`). Past the allowance, bills and company documents are read by the rules alone. Uploaded files are not stored; only the file names are recorded on the company.
 
 ## Company limit
 

@@ -1,7 +1,8 @@
 import { z } from "zod"
 import { readBill, type BillCheck, type BillFields } from "@/lib/bill-rules"
 import { normaliseDate } from "@/lib/document-rules"
-import { financialErrorResponse, financialOwner } from "@/lib/financial-store"
+import { chargeAiCall } from "@/lib/ai-allowance"
+import { FinancialError, financialErrorResponse, financialOwner } from "@/lib/financial-store"
 import { assertSameOrigin, readJson } from "@/lib/request-guard"
 
 export const runtime = "nodejs"
@@ -72,14 +73,16 @@ const same = (a: BillFields, b: BillFields) => (["net", "vat", "total"] as const
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request)
-    await financialOwner()
+    const owner = await financialOwner()
     const parsed = bodySchema.safeParse(await readJson(request, 8_000_000))
     if (!parsed.success) return Response.json({ error: "This document could not be read." }, { status: 400 })
+    // Past the day's AI allowance the document rules still read the bill.
+    const useAi = await chargeAiCall(owner, "bill").then(() => true, (error) => (error instanceof FinancialError && error.status === 429 ? false : Promise.reject(error)))
     const { check: ruleCheck, ...rules } = readBill(parsed.data.text, { ownTrn: parsed.data.ownTrn, ownName: parsed.data.ownName })
     let ai: BillFields | null = null
     let status: "used" | "unavailable" | "failed" = "unavailable"
     try {
-      ai = await readWithAi(parsed.data)
+      ai = useAi ? await readWithAi(parsed.data) : null
       if (ai) status = "used"
     } catch (error) {
       console.error("AI bill reading failed", error)
@@ -89,14 +92,17 @@ export async function POST(request: Request) {
     const sources: Record<string, "document" | "AI"> = Object.fromEntries(Object.keys(rules).map((k) => [k, "document"]))
     const check: BillCheck = { amounts: ruleCheck.amounts, notes: [...ruleCheck.notes] }
     if (ai) {
-      // Words: the AI reading, which sees the page, is preferred.
+      // AI is an aid: it fills what the document rules did not find and never overrides them.
+      const differs: string[] = []
       for (const key of ["supplier", "vendorTrn", "date", "number", "payment", "description", "ledgerName", "currency"] as const)
-        if (ai[key] !== undefined) {
+        if (ai[key] === undefined) continue
+        else if (fields[key] === undefined) {
           ;(fields as Record<string, unknown>)[key] = ai[key]
           sources[key] = "AI"
-        }
-      if (ai.ledgerName) delete fields.scheduleKey
-      // Figures: whichever reading is arithmetically proven; when both are, they must agree.
+        } else if (String(fields[key]).toLowerCase() !== String(ai[key]).toLowerCase()) differs.push(key)
+      if (sources.ledgerName === "AI") delete fields.scheduleKey
+      if (differs.length) check.notes.push(`The AI reading differs from the document on: ${differs.join(", ")}. The document's reading is kept; check it.`)
+      // Figures: only the document rules can prove them. AI figures are suggestions the user confirms.
       const rulesProven = ruleCheck.amounts === "proven"
       if (rulesProven && holds(ai) && !same(rules, ai)) {
         check.amounts = "partial"
@@ -106,10 +112,11 @@ export async function POST(request: Request) {
           fields[key] = ai[key]
           sources[key] = "AI"
         }
-        check.amounts = "proven"
-        check.notes = ["Amounts read by AI from the page; they add up and the VAT is consistent."]
+        check.amounts = "partial"
+        check.notes = ["Amounts suggested by AI from the page. They add up, but they were not found in the document's text: check them against the document."]
       } else if (rulesProven && same(rules, ai)) check.notes.push("The document's figures and the AI reading agree.")
     } else if (status === "failed") check.notes.push("The AI reading was not available this time; the document rules were used.")
+    else if (!useAi) check.notes.push("Today's AI reading allowance is used up; the document rules were used.")
     for (const key of Object.keys(fields) as (keyof BillFields)[]) if (fields[key] === undefined) delete fields[key]
     return Response.json({ fields, sources, ai: status, check }, { headers: { "Cache-Control": "private, no-store" } })
   } catch (error) {
