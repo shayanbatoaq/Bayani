@@ -155,6 +155,8 @@ export function BankStatementImport({
   const [appliedAt, setAppliedAt] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [applying, setApplying] = useState(false)
+  // The AI-read files the user confirmed; a file added later asks again.
+  const [aiChecked, setAiChecked] = useState("")
   const [error, setError] = useState("")
   const [shown, setShown] = useState(60)
   const [books, setBooks] = useState<Books | null>(null)
@@ -798,6 +800,7 @@ export function BankStatementImport({
     .filter((t) => (view === "all" ? true : view === "vat" ? vatOf(t) === null && effective(t) !== "review" : effective(t) === view))
     .filter((t) => !query || `${t.description} ${t.amount}`.toLowerCase().includes(query.toLowerCase()))
   const ready = files.length > 0 && files.every((f) => f.status === "done" || f.status === "error")
+  const aiRead = files.filter((f) => f.parsed?.warnings.includes(AI_READ_WARNING)).map((f) => f.name)
 
   return (
     <section aria-label="Upload bank statements" className="space-y-5">
@@ -1153,7 +1156,13 @@ export function BankStatementImport({
                   {appliedAt ? " These lines are already in the trial balance: every change you make here updates it and is saved automatically." : ""}
                 </p>
                 {error && <p className="note note-alert text-sm">{error}</p>}
-                <Button onClick={apply} disabled={applying || !ready || inPeriod.length === 0 || missingRates.length > 0}>
+                {aiRead.length > 0 && !appliedAt && (
+                  <label className="flex items-start gap-2 rounded-xl border border-[var(--saffron)] bg-[var(--saffron-wash)] p-3 text-sm">
+                    <input type="checkbox" className="mt-1" checked={aiChecked === aiRead.join("|")} onChange={(e) => setAiChecked(e.target.checked ? aiRead.join("|") : "")} />
+                    <span>I have compared the lines read by AI ({aiRead.join(", ")}) with the statement.</span>
+                  </label>
+                )}
+                <Button onClick={apply} disabled={applying || !ready || inPeriod.length === 0 || missingRates.length > 0 || (aiRead.length > 0 && !appliedAt && aiChecked !== aiRead.join("|"))}>
                   {applying ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
                   {appliedAt
                     ? `Update the ${new Date(period.end).getUTCFullYear()} trial balance now`
@@ -1264,8 +1273,11 @@ async function readStatementWithAi(file: File): Promise<ParsedStatement> {
   if (opening !== undefined && opening !== null) table.push(["", "Opening balance", null, null, opening])
   for (const p of pages) for (const r of p.rows) table.push([r.date, r.description, r.debit, r.credit, r.balance])
   const parsed = parseTableStatement(table, `${file.name} ${first?.bank ?? ""}`)
-  return { ...parsed, warnings: ["Read by AI from the page images; every line was checked against the running balance.", ...parsed.warnings] }
+  return { ...parsed, warnings: [AI_READ_WARNING, ...parsed.warnings] }
 }
+
+/** The AI writes both the amounts and the balances, so the balance check cannot prove its lines. */
+const AI_READ_WARNING = "Read by AI from the page images. The AI wrote both the amounts and the running balances, so compare its lines with the statement before adding them."
 type FinancialRecordLite = {
   clientId: string
   year: number

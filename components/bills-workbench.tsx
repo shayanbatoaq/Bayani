@@ -337,9 +337,10 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
   const total = billTotal({ net: netValue, vat: vatValue, vatTreatment: treatmentVat })
   const isAsset = head?.scheduleKey === "ppe"
   const spreadable = !isAsset && head && SPREADABLE.test(head.name)
-  // Amounts that were not proven from the document, or that were changed from what it shows, are confirmed by the user.
+  // Amounts that were not proven from the document, or that were changed from what it shows, and details read by AI are confirmed by the user.
   const changed = draft?.check.amounts === "proven" && (Math.abs((f.net ?? 0) - netValue) > 0.005 || Math.abs((f.vat ?? 0) - vatValue) > 0.005)
-  const needsConfirm = Boolean(draft) && (draft!.check.amounts !== "proven" || changed)
+  const byAi = Boolean(draft) && Object.values(draft!.sources).includes("AI")
+  const needsConfirm = Boolean(draft) && (draft!.check.amounts !== "proven" || changed || byAi)
   const missing = (key: keyof BillFields) => Boolean(draft) && draft!.fields[key] === undefined
   const from = (key: string) => draft?.sources[key]
 
@@ -401,7 +402,7 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
                 {draft.check.amounts === "proven"
                   ? `Amounts checked: ${aed(f.net ?? 0)} before VAT + ${aed(f.vat ?? 0)} VAT = ${aed(f.total ?? 0)}, as printed on the bill.`
                   : "Check the amounts against the document before posting."}{" "}
-                Read {Object.keys(draft.sources).length} details{draft.ai === "used" ? " (document rules and AI, compared)" : " (document rules)"}; fill in anything marked “not found”.
+                Read {Object.keys(draft.sources).length} details{draft.ai === "used" ? " (document rules, with AI filling what they did not find)" : " (document rules)"}; fill in anything marked “not found”.
               </p>
               {draft.check.notes.map((n) => (
                 <p key={n} className="text-xs opacity-90">
@@ -564,7 +565,7 @@ function BillForm({ company, books, change, initial, draft, onDone }: { company:
         {needsConfirm && (
           <label className="flex items-start gap-2 rounded-xl border border-[var(--saffron)] bg-[var(--saffron-wash)] p-3 text-sm">
             <input type="checkbox" className="mt-1" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-            <span>{changed ? "The amounts differ from what Bayani read on the document. " : ""}I have checked the amount before VAT, the VAT and the total against the document.</span>
+            <span>{changed ? "The amounts differ from what Bayani read on the document. " : ""}I have checked the amount before VAT, the VAT and the total{byAi ? ", and the details marked “read by AI”," : ""} against the document.</span>
           </label>
         )}
         {error && <p className="text-sm text-[var(--danger)]">{error}</p>}

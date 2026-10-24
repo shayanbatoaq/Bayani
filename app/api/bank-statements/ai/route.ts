@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { chargeAiCall } from "@/lib/ai-allowance"
 import { financialErrorResponse, financialOwner } from "@/lib/financial-store"
 import { assertSameOrigin, readJson } from "@/lib/request-guard"
 
@@ -41,11 +42,12 @@ Dates on UAE statements are day/month/year. Debits are money out, credits money 
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request)
-    await financialOwner()
+    const owner = await financialOwner()
     const ai = provider()
     if (!ai) return Response.json({ error: "AI reading is not set up (an OpenAI or OpenRouter key is needed on the server)." }, { status: 501 })
     const parsed = bodySchema.safeParse(await readJson(request, 8_000_000))
     if (!parsed.success) return Response.json({ error: "These pages could not be read." }, { status: 400 })
+    await chargeAiCall(owner, "statement")
     const response = await fetch(ai.endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${ai.key}`, "Content-Type": "application/json", ...ai.extra },
