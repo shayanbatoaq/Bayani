@@ -22,6 +22,7 @@ import {
 } from "@/components/books-shared"
 import { Loading, NoData } from "@/components/tax-workbench"
 import { Button } from "@/components/ui/button"
+import { DecimalInput } from "@/components/ui/decimal-input"
 import { Input } from "@/components/ui/input"
 import {
   VAT_TREATMENTS,
@@ -349,10 +350,10 @@ export function LinesEditor({
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-[0.7fr_1fr_1.4fr_1fr_auto]">
               <Field label="Quantity">
-                <Input inputMode="decimal" value={String(line.quantity)} onChange={(e) => set(line.id, { quantity: Math.max(0, Number(e.target.value) || 0) })} />
+                <DecimalInput value={String(line.quantity)} onValueChange={(n) => set(line.id, { quantity: Math.max(0, n ?? 0) })} />
               </Field>
               <Field label="Rate">
-                <Input inputMode="decimal" value={line.rate ? String(line.rate) : ""} placeholder="0.00" onChange={(e) => set(line.id, { rate: Number(e.target.value.replace(/,/g, "")) || 0 })} />
+                <DecimalInput value={line.rate ? String(line.rate) : ""} placeholder="0.00" onValueChange={(n) => set(line.id, { rate: n ?? 0 })} />
               </Field>
               {vatRegistered ? (
                 <Field label="VAT">

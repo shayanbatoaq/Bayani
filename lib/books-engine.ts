@@ -1,4 +1,4 @@
-import { billTotal, documentTotals, round2, type BankLineRef, type Books, type Invoice, type Bill } from "./books"
+import { billBase, billTotal, documentTotals, round2, type BankLineRef, type Books, type Invoice, type Bill } from "./books"
 
 /**
  * The accounting behind invoices, credit notes, bills, payments and adjusting schedules.
@@ -98,12 +98,8 @@ export function bookEntries(books: Books): Entry[] {
   }
   for (const bill of books.bills) {
     const target = bill.treatment === "prepaid" && bill.months ? PREPAID : bill.treatment === "asset" ? ASSETS : { ledgerName: bill.ledgerName, scheduleKey: bill.scheduleKey }
-    // Reverse charge: the supplier charges no VAT and the output and input VAT cancel out.
-    const vat = bill.vatTreatment === "reverseCharge" ? 0 : bill.vat
-    const r = bill.rate ?? 1
-    const payable = round2(round2(bill.net + vat) * r)
-    const vatBase = round2(vat * r)
-    entries.push({ date: bill.date, source: `Bill ${bill.number || bill.id}`, legs: [leg(target, payable - vatBase), leg(VAT, vatBase), leg(AP, -payable)] })
+    const { payable, vat, net } = billBase(bill)
+    entries.push({ date: bill.date, source: `Bill ${bill.number || bill.id}`, legs: [leg(target, net), leg(VAT, vat), leg(AP, -payable)] })
   }
   for (const p of books.payments) {
     const atDocRate = round2(p.amount * rateOf(p.kind, p.docId))

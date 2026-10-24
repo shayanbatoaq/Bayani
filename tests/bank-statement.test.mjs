@@ -262,3 +262,48 @@ test("Excel and CSV exports in the layouts UAE banks use", async () => {
   assert.equal(a.transactions.length, 2)
   assert.equal(a.closing, 1480)
 })
+
+test("dates in .xls and .ods statements are the days printed, east or west of Greenwich", async () => {
+  const { readStatementFile } = await jiti.import("../lib/bank-reader.ts")
+  const XLSX = await import("xlsx")
+  const sheet = XLSX.utils.aoa_to_sheet([["Date", "Description", "Debit", "Credit", "Balance"], ["", "Opening balance", null, null, 100], [45658, "Fee", 10, null, 90], [45658.75, "Sale", null, 5, 95]])
+  sheet.A3.z = "dd/mm/yyyy"
+  sheet.A4.z = "dd/mm/yyyy hh:mm"
+  const book = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(book, sheet, "Statement")
+  const zone = process.env.TZ
+  try {
+    for (const tz of ["Asia/Dubai", "America/New_York"])
+      for (const [type, ext] of [["biff8", "xls"], ["ods", "ods"]]) {
+        process.env.TZ = tz
+        const file = new File([XLSX.write(book, { type: "array", bookType: type })], `statement.${ext}`)
+        const { accounts } = await readStatementFile(file)
+        assert.deepEqual(accounts[0].transactions.map((t) => t.date), ["2025-01-01", "2025-01-01"], `${tz} ${ext}`)
+      }
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
+})
+
+test("line ids stay short in a long session and overlapping statements worded differently are counted once", async () => {
+  const { bankSessionSchema } = await jiti.import("../lib/bank-session.ts")
+  const rows = [["Date", "Description", "Debit", "Credit", "Balance"], ["", "Opening balance", null, null, 100000]]
+  for (let i = 0; i < 150; i++) rows.push(["05/01/2025", `Fee ${i}`, 1, null, 100000 - i - 1])
+  for (let n = 0; n < 3; n++) parseTableStatement(rows, "big.csv")
+  const file = crypto.randomUUID()
+  const account = parseTableStatement(rows, "big.csv").accounts[0]
+  assert.equal(account.transactions.at(-1).id, "t150")
+  const lines = account.transactions.map((t) => ({ ...t, id: `${file}:${t.id}` }))
+  const session = { files: [{ id: file, name: "big.csv", bank: "Bank", warnings: [], accounts: [{ ...account, key: `${file}:${account.key}`, transactions: lines }] }], overrides: { [lines.at(-1).id]: "bankCharges" }, sessionRules: {}, rates: {}, vatIncluded: false, openingSource: "retained", appliedAt: null, version: 2 }
+  assert.equal(bankSessionSchema.safeParse(session).success, true)
+  // March 15 is in both statements, the second with a reference appended.
+  const head = [["Account No: 1234567890123"], ["Date", "Description", "Debit", "Credit", "Balance"]]
+  const a = parseTableStatement([...head, ["", "Opening balance", null, null, 1000], ["10/01/2025", "POS ACME", 100, null, 900], ["15/03/2025", "SALARY", null, 500, 1400], ["15/03/2025", "SALARY", null, 500, 1900]], "Mashreq jan-mar.xlsx")
+  const b = parseTableStatement([...head, ["", "Opening balance", null, null, 900], ["15/03/2025", "SALARY  REF 991", null, 500, 1400], ["15/03/2025", "SALARY  REF 992", null, 500, 1900], ["02/04/2025", "FEE", 10, null, 1890]], "Mashreq mar-may.xlsx")
+  const [merged] = mergeStatements([{ account: a.accounts[0], bank: a.bank, file: "a" }, { account: b.accounts[0], bank: b.bank, file: "b" }])
+  assert.equal(merged.duplicates, 2)
+  // Two salaries the same day, told apart by the balance after each.
+  assert.deepEqual(merged.account.transactions.map((t) => [t.date, t.amount, t.balance]), [["2025-01-10", -100, 900], ["2025-03-15", 500, 1400], ["2025-03-15", 500, 1900], ["2025-04-02", -10, 1890]])
+  assert.equal(merged.account.closing, 1000 + merged.account.transactions.reduce((t, x) => t + x.amount, 0))
+})

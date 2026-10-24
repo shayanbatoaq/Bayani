@@ -20,6 +20,14 @@ test("amounts preserve signs and reject invalid or empty values", () => {
     ["1,2,3", null],
     ["123oops", null],
     [Infinity, null],
+    ["1,234.00 Dr", 1234],
+    ["1,234.00 CR", -1234],
+    ["500Cr", -500],
+    ["500-", -500],
+    ["-500 Cr", null],
+    ["(500)-", null],
+    ["Dr", null],
+    ["-", null],
   ]) {
     assert.equal(parseAmount(input), expected, String(input))
   }
@@ -81,6 +89,31 @@ test("debit/credit imports convert to amounts without treating invalid values as
     { ledgerName: "Revenue", amount: -100 },
   ])
   assert.equal(result.skipped, 2)
+})
+
+test("debit/credit imports read dash placeholders as zero and Dr, Cr and trailing minus figures", () => {
+  const result = rowsToLedgerEntries([
+    ["Account", "Debit", "Credit"],
+    ["Bank", "5,000.00", " - "],
+    ["Share Capital", "–", "6,000.00"],
+    ["Rent", "1,000.00 Dr", "-"],
+    ["Revenue", "-", "500.00 Cr"],
+    ["Refund", "500-", "-"],
+    ["Suspense", "-", "-"],
+  ])
+  assert.deepEqual(result.entries, [
+    { ledgerName: "Bank", amount: 5000 },
+    { ledgerName: "Share Capital", amount: -6000 },
+    { ledgerName: "Rent", amount: 1000 },
+    { ledgerName: "Revenue", amount: -500 },
+    { ledgerName: "Refund", amount: -500 },
+    { ledgerName: "Suspense", amount: 0 },
+  ])
+  assert.equal(result.skipped, 0)
+  assert.deepEqual(rowsToLedgerEntries([["Account", "Amount"], ["Bank", " - "], ["Loan", "2,000.00 Cr"]]).entries, [
+    { ledgerName: "Bank", amount: 0 },
+    { ledgerName: "Loan", amount: -2000 },
+  ])
 })
 
 test("unknown ledger names require mapping; overrides are never implied", () => {

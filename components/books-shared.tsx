@@ -4,10 +4,11 @@ import { Children, cloneElement, isValidElement, useEffect, useId, useMemo, useR
 import { Check, ChevronDown, Loader2, Search, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DecimalInput } from "@/components/ui/decimal-input"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { emptyBooks, type Books, type BooksAction, type Party } from "@/lib/books"
-import type { Company } from "@/lib/company"
+import { localToday, type Company } from "@/lib/company"
 import { categoryOf } from "@/lib/financial-statements"
 import { fetchRate } from "@/lib/fx"
 import { ledgerHeads } from "@/lib/ledger-heads"
@@ -15,7 +16,7 @@ import { cn } from "@/lib/utils"
 
 export const aed = (n: number) => (Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 export const uid = () => crypto.randomUUID()
-export const today = () => new Date().toISOString().slice(0, 10)
+export const today = () => localToday()
 export const shortDate = (d: string) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "")
 export const addDays = (d: string, days: number) => {
   const x = new Date(`${d}T00:00:00Z`)
@@ -548,13 +549,13 @@ export function DocumentCurrency({
             <span className="block text-[13px] font-medium">
               1 {value.currency} = … {base}
             </span>
-            <Input inputMode="decimal" className="w-32" aria-label={`Rate ${value.currency} to ${base}`} value={String(value.rate)} onChange={(e) => onChange({ ...value, rate: Number(e.target.value) || 0 })} />
+            <DecimalInput className="w-32" aria-label={`Rate ${value.currency} to ${base}`} value={String(value.rate)} onValueChange={(n) => onChange({ ...value, rate: n || 0 })} />
           </label>
         )}
         {value.currency !== "AED" && base !== "AED" && (
           <label className="space-y-1.5">
             <span className="block text-[13px] font-medium">1 {value.currency} = … AED</span>
-            <Input inputMode="decimal" className="w-32" aria-label={`Rate ${value.currency} to AED`} value={String(value.aedRate ?? "")} onChange={(e) => onChange({ ...value, aedRate: Number(e.target.value) || undefined })} />
+            <DecimalInput className="w-32" aria-label={`Rate ${value.currency} to AED`} value={String(value.aedRate ?? "")} onValueChange={(n) => onChange({ ...value, aedRate: n || undefined })} />
           </label>
         )}
         {busy && <Loader2 className="mb-3 size-4 animate-spin text-muted-foreground" />}

@@ -84,6 +84,7 @@ async function readSheets(file: File, extension: string): Promise<unknown[][][]>
     }
   }
   const XLSX = await import("xlsx")
-  const book = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array", cellDates: true, dense: true })
+  // Dates as the sheet's own day numbers: SheetJS's Dates are local midnight, a day early once read as UTC east of Greenwich.
+  const book = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array", dense: true })
   return book.SheetNames.map((name) => XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, raw: true, defval: null, blankrows: false }))
 }

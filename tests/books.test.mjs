@@ -4,7 +4,7 @@ import { createJiti } from "jiti"
 
 // Invented clients, suppliers and figures only.
 const jiti = createJiti(import.meta.url)
-const { applyBooksAction, emptyBooks, documentTotals, nextInvoiceNumber } = await jiti.import("../lib/books.ts")
+const { applyBooksAction, booksSchema, emptyBooks, documentTotals, nextInvoiceNumber } = await jiti.import("../lib/books.ts")
 const { bookRows, bookYears, invoiceStatus, billStatus, linkedLine, matchCandidates, instalments } = await jiti.import("../lib/books-engine.ts")
 const { readBill } = await jiti.import("../lib/bill-rules.ts")
 const { resolveRecords } = await jiti.import("../lib/movement.ts")
@@ -97,6 +97,26 @@ test("a prepaid bill is spread monthly and the balance is carried in closing yea
   assert.equal(get(closing26, "Retained Earnings"), -(14000 - 6000))
   assert.equal(sum(closing26), 0)
   assert.equal(instalments(100, "2025-01-15", 3).map((p) => p.amount).join(), "33.33,33.33,33.34")
+})
+
+test("a bill in another currency is spread or depreciated in the base currency", () => {
+  const bill = (id, treatment) => ({ id, number: id, date: "2025-01-15", dueDate: "", vendorId: "v1", ledgerName: "Rent Expense", scheduleKey: "rent", net: 1000, vat: 0, vatTreatment: "zero", currency: "USD", rate: 3.6725, payment: "credit", description: "", attachment: null, treatment, months: 12, createdAt: "" })
+  const books = run(sample(), { action: "bill", bill: bill("B1", "asset") }, { action: "bill", bill: bill("B2", "prepaid") })
+  assert.deepEqual(books.schedules.map((s) => s.amount), [3672.5, 3672.5])
+  const rows = bookRows(books, FY(2025), true)
+  assert.equal(get(rows, "Fixed Assets") + get(rows, "Allowance for Depreciation"), 0)
+  assert.equal(get(rows, "Prepaid Expense"), 0)
+  assert.equal(get(rows, "Rent Expense"), 3672.5)
+  // Saved before, in the bill's currency: read in the base currency.
+  const legacy = booksSchema.parse({ ...books, schedules: books.schedules.map((s) => ({ ...s, amount: 1000 })) })
+  assert.deepEqual(legacy.schedules.map((s) => s.amount), [3672.5, 3672.5])
+})
+
+test("a change past the books' limits is refused, not saved", () => {
+  const books = { ...sample(), schedules: Array.from({ length: 2000 }, (_, i) => ({ id: `s${i}`, kind: "prepaid", label: "Rent", ledgerName: "Rent Expense", scheduleKey: "rent", amount: 100, start: "2025-01-01", months: 12, source: { type: "manual" } })) }
+  const one = { id: "s-new", kind: "prepaid", label: "Rent", ledgerName: "Rent Expense", scheduleKey: "rent", amount: 100, start: "2025-01-01", months: 12, source: { type: "manual" } }
+  assert.throws(() => applyBooksAction(books, { action: "schedule", schedule: one }), /at most 2000 schedules/)
+  assert.equal(applyBooksAction(books, { action: "schedule", schedule: { ...books.schedules[0], months: 6 } }).schedules.length, 2000)
 })
 
 test("depreciation and accruals, with the accrual reversed the next month", () => {

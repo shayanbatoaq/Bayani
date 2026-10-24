@@ -31,6 +31,12 @@ export async function readBooks(owner: string, companyId: string): Promise<Books
   }
 }
 
+/** A company's books that cannot be read stop the statements: left out, they would be wrong without saying so. */
+function unreadable(companyId: string, error: unknown): never {
+  console.error(`Books of company ${companyId} could not be read; its statements would leave out its invoices and bills`, error)
+  throw new FinancialError("The invoices and bills of one of your companies could not be read, so the statements are not shown without them.", 500)
+}
+
 /** Every company's books, for building the trial balances. */
 export async function readAllBooks(owner: string): Promise<Map<string, Books>> {
   const out = new Map<string, Books>()
@@ -38,7 +44,8 @@ export async function readAllBooks(owner: string): Promise<Map<string, Books>> {
   if (stored) {
     for (const row of stored) {
       const parsed = booksSchema.safeParse(row.value)
-      if (parsed.success) out.set(row.id, parsed.data)
+      if (!parsed.success) unreadable(row.id, parsed.error)
+      out.set(row.id, parsed.data)
     }
     return out
   }
@@ -53,7 +60,7 @@ export async function readAllBooks(owner: string): Promise<Map<string, Books>> {
     try {
       out.set(id, await readBooks(owner, id))
     } catch (error) {
-      console.error("Books could not be read", error)
+      unreadable(id, error)
     }
   }
   return out
