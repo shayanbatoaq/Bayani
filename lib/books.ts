@@ -176,7 +176,7 @@ export const booksSchema = z.object({
   schedules: z.array(scheduleSchema).max(2000).default([]),
   accruals: z.array(accrualSchema).max(2000).default([]),
   /** VAT return each item belongs to when not its own period: a period id, or "none" while left out of every return. */
-  vatAssignments: z.record(z.string().max(80), z.string().max(40)).default({}),
+  vatAssignments: z.record(z.string().max(120), z.string().max(40)).default({}),
   revision: z.number().int().nonnegative().default(0),
 }).transform((books) => {
   // A bill's own schedule is in the base currency, as the bill is booked (schedules saved before were in the bill's currency).
@@ -250,7 +250,7 @@ export const booksActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("accrual"), accrual: accrualSchema }),
   z.object({ action: z.literal("deleteAccrual"), id }),
   /** period: a VAT period id, "none" to leave the item out of every return for now, null for its own period. */
-  z.object({ action: z.literal("vatAssign"), keys: z.array(z.string().max(80)).min(1).max(5000), period: z.string().max(40).nullable() }),
+  z.object({ action: z.literal("vatAssign"), keys: z.array(z.string().max(120)).min(1).max(5000), period: z.string().max(40).nullable() }),
 ])
 export type BooksAction = z.infer<typeof booksActionSchema>
 
