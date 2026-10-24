@@ -420,12 +420,37 @@ test("depreciation without accumulated depreciation still reduces book value", a
   const y25 = raw(2025, "closing", [["Revenue", -20000], ["Cost of Goods Sold", 10000], ["Share Capital", -25000], ["Bank", 15000], ["Rent Expense", 10000], ["Fixed Assets", 10000]])
   // Exactly as entered in the app: depreciation with no allowance line.
   const entries26 = [["Bank", 40000], ["Revenue", -80000], ["Cost of Goods Sold", 7500], ["Rent Expense", 7000], ["Depreciation Expense", 2500], ["Accounts Payable", -4500], ["Accounts Receivable", 1500], ["Current Account", 15000], ["Cash in Hand", 11000]]
+  // As closing balances: the bank at its true 57,500, so only the 2,500 credit is missing.
+  const closing26 = [["Bank", 57500], ...entries26.slice(1), ["Share Capital", -25000], ["Fixed Assets", 10000]]
   for (const mode of ["movement", "closing"]) {
-    const [, r26] = resolveRecords([y25, raw(2026, mode, mode === "closing" ? [...entries26, ["Share Capital", -25000], ["Fixed Assets", 10000]] : entries26)])
+    const [, r26] = resolveRecords([y25, raw(2026, mode, mode === "closing" ? closing26 : entries26)])
     assert.equal(r26.statements.bs.find((line) => line.row === 11).amount, 7500, mode)
     // The 2,500 credit was never entered, so the figures are now out by that amount and say so.
     if (mode === "movement") assert.equal(Math.abs(r26.statements.balanceDifference), 2500)
+    else assert.equal(r26.statements.balanceDifference, 0)
   }
+})
+
+test("a closing trial balance that balances is not given accumulated depreciation; earlier years' is kept beside the books'", async () => {
+  const { resolveRecords } = await jiti.import("../lib/movement.ts")
+  const raw = (year, rows) => ({
+    clientId: "00000000-0000-4000-8000-000000000001", clientName: "Test LLC", year, currency: "AED",
+    openingEquity: null, entryMode: "closing", id: `x-${year}`, revision: 1, updatedAt: "",
+    rows: rows.map(([ledgerName, amount, scheduleKey], i) => ({ id: `${year}-${i}`, ledgerName, amount, scheduleKey })),
+  })
+  // Assets at net book value, from accounting software: balanced as it is.
+  const [net] = resolveRecords([raw(2024, [["Furniture & Fixtures (NBV)", 9000, "ppe"], ["Depreciation Expense", 1000, "depreciation"], ["Bank", 5000, "bank"], ["Share Capital", -10000, "capital"], ["Revenue", -5000, "sales"]])])
+  assert.equal(net.closingRows.length, 5)
+  assert.equal(net.statements.balanceDifference, 0)
+  assert.equal(net.statements.bs.find((line) => line.row === 11).amount, 9000)
+  // Typed without accumulated depreciation, out by it each year; 2025 also has a books schedule of 1,200.
+  const y24 = raw(2024, [["Fixed Assets", 10000, "ppe"], ["Depreciation Expense", 1000, "depreciation"], ["Share Capital", -10000, "capital"]])
+  const y25 = raw(2025, [["Fixed Assets", 10000, "ppe"], ["Depreciation Expense", 1000, "depreciation"], ["Share Capital", -10000, "capital"], ["Retained Earnings", 1000, "retained"]])
+  y25.rows.push({ id: "books-0-depreciation-expense", ledgerName: "Depreciation Expense", amount: 1200, scheduleKey: "depreciation" }, { id: "books-1-allowance-for-depreciation", ledgerName: "Allowance for Depreciation", amount: -1200, scheduleKey: "ppe" })
+  const [, r25] = resolveRecords([y24, y25])
+  assert.equal(r25.closingRows.filter((row) => row.scheduleKey === "ppe" && row.amount < 0).reduce((t, row) => t + row.amount, 0), -3200)
+  assert.equal(r25.statements.balanceDifference, 0)
+  assert.equal(r25.statements.bs.find((line) => line.row === 11).amount, 6800)
 })
 
 test("Excel report has one sheet per statement", async () => {

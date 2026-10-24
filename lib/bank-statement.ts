@@ -553,7 +553,8 @@ export function parsePdfStatement(pages: TextPage[]): ParsedStatement {
     if (m.closing !== undefined && current && current.currency === currency) current.statedClosing = m.closing
   }
 
-  for (const section of sections) accounts.push(reconcile(section.rows, section.currency, section.account, section.statedOpening, section.statedClosing))
+  const seq = { n: 0 }
+  for (const section of sections) accounts.push(reconcile(section.rows, section.currency, section.account, section.statedOpening, section.statedClosing, seq))
   const usable = accounts.filter((a) => a.transactions.length > 0 || a.opening !== null)
   if (!usable.length) warnings.push("No transaction table was found. If this is a scanned statement, download the statement from online banking as PDF or Excel instead.")
   return { bank, accounts: usable, warnings }
@@ -563,8 +564,8 @@ export function parsePdfStatement(pages: TextPage[]): ParsedStatement {
 
 type RawRow = { date: string; description: string; debit: number | null; credit: number | null; amount: number | null; balance: number | null; opening: boolean }
 
-let seq = 0
-function reconcile(rows: RawRow[], currency: string, account: string, statedOpening: number | null, statedClosing: number | null): BankAccount {
+/** seq numbers the lines of one statement file, so ids stay short however many files a session reads. */
+function reconcile(rows: RawRow[], currency: string, account: string, statedOpening: number | null, statedClosing: number | null, seq: { n: number }): BankAccount {
   const openingRow = rows.find((r) => r.opening)
   let body = rows.filter((r) => !r.opening && r.date)
   // Newest-first statements are put in date order.
@@ -623,11 +624,11 @@ function reconcile(rows: RawRow[], currency: string, account: string, statedOpen
     if (amount === null) continue
     if (balance !== null) previous = balance
     else if (previous !== null) previous = round2(previous + amount)
-    transactions.push({ id: `t${++seq}`, date: r.date, description: r.description || "(no description)", amount: round2(amount), balance, ...(issue ? { issue } : {}) })
+    transactions.push({ id: `t${++seq.n}`, date: r.date, description: r.description || "(no description)", amount: round2(amount), balance, ...(issue ? { issue } : {}) })
   }
   const closing = transactions.length ? (transactions[transactions.length - 1].balance ?? (opening !== null ? round2(opening + transactions.reduce((t, x) => t + x.amount, 0)) : null)) : opening
   return {
-    key: `${currency}-${account || "account"}-${seq}`,
+    key: `${currency}-${account || "account"}-${seq.n}`,
     currency,
     account,
     opening,
@@ -722,7 +723,7 @@ export function parseTableStatement(rows: unknown[][], name = ""): ParsedStateme
   const opening = context.match(/opening balance\s*:?\s*([-\d,.]+)/i)?.[1]
   if (opening) statedOpening = parseMoney(opening)
   const accountNo = context.match(/\bAE\d{21}\b/)?.[0] ?? context.match(/(?:account|a\/c)\s*(?:no\.?|number|#)?\s*[:.\-]?\s*(\d[\d\- ]{3,24}\d)/i)?.[1]?.replace(/[\s-]/g, "") ?? ""
-  return { bank: detectBank(`${name}\n${context}`), accounts: [reconcile(out, currency, accountNo, statedOpening, null)].filter((a) => a.transactions.length), warnings: [] }
+  return { bank: detectBank(`${name}\n${context}`), accounts: [reconcile(out, currency, accountNo, statedOpening, null, { n: 0 })].filter((a) => a.transactions.length), warnings: [] }
 }
 
 /* ---------------- bank ---------------- */
@@ -808,6 +809,8 @@ function overlaps(a: StatementPart, b: StatementPart) {
   return Boolean(before && second.account.opening !== null && close(before.balance!, second.account.opening, 0.011))
 }
 const belongs = (a: StatementPart, b: StatementPart) => runsOn(a, b) || overlaps(a, b)
+/** A line of one account: its date, amount and the balance after it; the description only where there is no balance (statements word lines differently). */
+const lineKey = (t: BankTransaction) => (t.balance !== null ? `${t.date}|${t.amount}|${t.balance}` : `${t.date}|${t.amount}||${t.description}`)
 
 /**
  * Statements of the same account uploaded in any order (February, May, January…) are put
@@ -855,7 +858,7 @@ export function mergeStatements(parts: StatementPart[]): MergedAccount[] {
       // Only lines already read from an EARLIER statement are repeats; two equal lines in one statement are both real.
       const own: string[] = []
       for (const t of part.account.transactions) {
-        const key = `${t.date}|${t.amount}|${t.balance}|${t.description}`
+        const key = lineKey(t)
         if (seen.has(key)) {
           duplicates++
           continue

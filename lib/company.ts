@@ -171,6 +171,9 @@ export function emirateFromAuthority(authority: string) {
 export const day = 86_400_000
 export const toDate = (iso: string) => new Date(`${iso}T00:00:00Z`)
 export const toIso = (date: Date) => date.toISOString().slice(0, 10)
+/** Today on the user's own calendar (UTC is still yesterday in the UAE until 4 am). */
+export const localToday = (now = new Date()) =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 const lastDayOfMonth = (year: number, month: number) =>
   new Date(Date.UTC(year, month, 0)) // month is 1-based here
 export function addDays(iso: string, days: number) {

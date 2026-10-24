@@ -19,7 +19,7 @@ import {
 import { CompanyPicker, Loading, NoData, useTaxData } from "@/components/tax-workbench"
 import { VatReturnBuilder } from "@/components/vat-return-builder"
 import { Button } from "@/components/ui/button"
-import { monthNames } from "@/lib/company"
+import { localToday, monthNames } from "@/lib/company"
 import { readDocument, type ReadProgress } from "@/lib/document-reader"
 import {
   BOXES,
@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils"
 const aed = (n: number | undefined) => (Math.round((n ?? 0) * 100) / 100 || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const whole = (n: number) => Math.round(n).toLocaleString("en-US")
 const dmy = (iso?: string) => (iso ? iso.split("-").reverse().join("/") : "")
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localToday()
 
 export function VatWorkbench() {
   const data = useTaxData()

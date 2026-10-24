@@ -40,18 +40,27 @@ export function closingRowsFor(
   const charge = round(typed.filter((row) => row.scheduleKey === "depreciation").reduce((sum, row) => sum + row.amount, 0))
   const auto: AutoEntry[] = []
   if (charge !== 0 && !typed.some(isContra)) {
-    const at = rows.findIndex(isContra)
-    const priorAccumulated =
-      input.entryMode === "movement" || !prior ? 0 : prior.closingRows.filter(isContra).reduce((sum, row) => sum + row.amount, 0)
-    if (at >= 0) rows[at] = { ...rows[at], amount: round(rows[at].amount - charge) }
-    else if (input.entryMode !== "movement" && priorAccumulated !== 0)
-      rows.push({ id: "auto-accumulated", ledgerName: prior!.closingRows.find(isContra)!.ledgerName, amount: round(priorAccumulated - charge), scheduleKey: "ppe" })
-    else rows.push({ id: "auto-accumulated", ledgerName: "Allowance for Depreciation", amount: -charge, scheduleKey: "ppe" })
-    auto.push({
-      ledgerName: at >= 0 ? rows[at].ledgerName : "Allowance for Depreciation",
-      amount: -charge,
-      reason: "Accumulated depreciation increased by the year's depreciation charge",
-    })
+    let posted: FinancialLedger | null = null
+    if (input.entryMode === "movement") {
+      const at = rows.findIndex(isContra)
+      if (at >= 0) posted = rows[at] = { ...rows[at], amount: round(rows[at].amount - charge) }
+      else rows.push((posted = { id: "auto-accumulated", ledgerName: "Allowance for Depreciation", amount: -charge, scheduleKey: "ppe" }))
+    } else {
+      // A closing trial balance is reported as entered: completed only when it is out by exactly the
+      // accumulated depreciation of the typed charges, this year's and the earlier years' (the books'
+      // schedules are in their own rows, to the year end). One that balances, such as assets entered
+      // at book value, is left alone.
+      const earlier = prior ? prior.closingRows.filter((row) => isContra(row) && !row.id.startsWith("books-")) : []
+      const amount = round(earlier.reduce((sum, row) => sum + row.amount, 0) - charge)
+      if (round(rows.reduce((sum, row) => sum + row.amount, 0) + amount) === 0)
+        rows.push((posted = { id: "auto-accumulated", ledgerName: earlier[0]?.ledgerName ?? "Allowance for Depreciation", amount, scheduleKey: "ppe" }))
+    }
+    if (posted)
+      auto.push({
+        ledgerName: posted.ledgerName,
+        amount: -charge,
+        reason: "Accumulated depreciation increased by the year's depreciation charge",
+      })
   }
   return { rows, carried, auto }
 }

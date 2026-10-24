@@ -4,6 +4,7 @@ import { useState } from "react"
 import { AlertCircle, Loader2, Plus, Save, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DecimalInput } from "@/components/ui/decimal-input"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -200,18 +201,16 @@ export function CompanyForm({
                 value={partner.nationality}
                 onChange={(e) => setPartner(index, { nationality: e.target.value })}
               />
-              <Input
+              <DecimalInput
                 aria-label={`Partner ${index + 1} share percent`}
-                inputMode="decimal"
                 value={Number.isFinite(partner.sharePercent) ? String(partner.sharePercent) : ""}
-                onChange={(e) => setPartner(index, { sharePercent: Number(e.target.value) })}
+                onValueChange={(n) => setPartner(index, { sharePercent: n ?? 0 })}
                 className="font-mono"
               />
-              <Input
+              <DecimalInput
                 aria-label={`Partner ${index + 1} share value`}
-                inputMode="decimal"
                 value={Number.isFinite(partner.shareValue) ? String(partner.shareValue) : ""}
-                onChange={(e) => setPartner(index, { shareValue: Number(e.target.value) })}
+                onValueChange={(n) => setPartner(index, { shareValue: n ?? 0 })}
                 className="font-mono"
               />
               <Button

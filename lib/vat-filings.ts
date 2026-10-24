@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { monthNames, type Company } from "./company"
+import { localToday, monthNames, type Company } from "./company"
 
 /**
  * VAT returns as filed: the user uploads the VAT 201 return downloaded from EmaraTax
@@ -206,7 +206,7 @@ export function taxYearStartMonth(company: Company, settings: VatSettings) {
 }
 
 /** Tax years (e.g. "2025-2026" for May to April) with their quarters or months. */
-export function vatYears(company: Company, settings: VatSettings, filings: Record<string, VatFiling>, today = iso(new Date())): VatYear[] {
+export function vatYears(company: Company, settings: VatSettings, filings: Record<string, VatFiling>, today = localToday()): VatYear[] {
   const startMonth0 = taxYearStartMonth(company, settings) - 1
   const monthly = company.vat.frequency === "monthly"
   const step = monthly ? 1 : 3
@@ -259,7 +259,7 @@ export type VatAnalysis = {
 
 const fmt = (n: number) => `AED ${Math.round(n).toLocaleString("en-US")}`
 
-export function analyse(company: Company, years: VatYear[], filings: Record<string, VatFiling>, yearKey: string, today = iso(new Date())): VatAnalysis {
+export function analyse(company: Company, years: VatYear[], filings: Record<string, VatFiling>, yearKey: string, today = localToday()): VatAnalysis {
   const slots = years.flatMap((y) => y.periods)
   const filed = slots.map((slot) => ({ slot, filing: filingFor(slot, filings) })).filter((x): x is { slot: VatPeriodSlot; filing: VatFiling } => Boolean(x.filing))
   const supplies = (f: VatFiling) => STANDARD.reduce((t, k) => t + val(f, k, "amount"), 0) + val(f, "4", "amount")
