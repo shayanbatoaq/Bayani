@@ -178,6 +178,15 @@ export const booksSchema = z.object({
   /** VAT return each item belongs to when not its own period: a period id, or "none" while left out of every return. */
   vatAssignments: z.record(z.string().max(80), z.string().max(40)).default({}),
   revision: z.number().int().nonnegative().default(0),
+}).transform((books) => {
+  // A bill's own schedule is in the base currency, as the bill is booked (schedules saved before were in the bill's currency).
+  const bills = new Map(books.bills.map((b) => [b.id, b]))
+  const schedules = books.schedules.map((s) => {
+    const bill = s.source.type === "bill" ? bills.get(s.source.billId) : undefined
+    const amount = bill ? billBase(bill).net : 0
+    return amount > 0 && amount !== s.amount ? { ...s, amount } : s
+  })
+  return { ...books, schedules }
 })
 export type Books = z.infer<typeof booksSchema>
 export const emptyBooks = (): Books => booksSchema.parse({})
@@ -198,6 +207,15 @@ export function documentTotals(lines: Pick<Line, "quantity" | "rate" | "vat">[])
   return { net, vat, total: round2(net + vat) }
 }
 export const billTotal = (bill: Pick<Bill, "net" | "vat" | "vatTreatment">) => round2(bill.net + (bill.vatTreatment === "reverseCharge" ? 0 : bill.vat))
+/** A bill in the base currency as it is booked, each leg to the fils: the payable, its VAT and the cost. */
+export function billBase(bill: Pick<Bill, "net" | "vat" | "vatTreatment" | "rate">) {
+  // Reverse charge: the supplier charges no VAT and the output and input VAT cancel out.
+  const vat = bill.vatTreatment === "reverseCharge" ? 0 : bill.vat
+  const r = bill.rate ?? 1
+  const payable = round2(round2(bill.net + vat) * r)
+  const vatBase = round2(vat * r)
+  return { payable, vat: vatBase, net: round2(payable - vatBase) }
+}
 
 export function nextInvoiceNumber(books: Books) {
   const { prefix, nextNumber } = books.settings
@@ -315,7 +333,7 @@ export function applyBooksAction(books: Books, a: BooksAction): Books {
           label: `${a.bill.description || a.bill.ledgerName}${a.bill.number ? ` (bill ${a.bill.number})` : ""}`.slice(0, 160),
           ledgerName: a.bill.treatment === "asset" ? "Depreciation Expense" : a.bill.ledgerName,
           scheduleKey: a.bill.treatment === "asset" ? "depreciation" : a.bill.scheduleKey,
-          amount: round2(a.bill.net),
+          amount: billBase(a.bill).net,
           start: a.bill.date,
           months: a.bill.months,
           source: { type: "bill", billId: a.bill.id },
@@ -360,5 +378,12 @@ export function applyBooksAction(books: Books, a: BooksAction): Books {
       break
   }
   next.revision = books.revision + 1
+  // Refused here rather than saved past the books' limits, where they could no longer be read.
+  const checked = booksSchema.safeParse(next)
+  if (!checked.success) {
+    const issue = checked.error.issues[0]
+    const list = String(issue?.path[0] ?? "").replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`)
+    throw new Error(issue?.code === "too_big" && issue.path.length === 1 ? `These books are full: they can hold at most ${issue.maximum} ${list}.` : "This change could not be saved: some details are not valid.")
+  }
   return next
 }
