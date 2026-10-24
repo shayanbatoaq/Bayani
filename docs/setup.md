@@ -24,11 +24,13 @@ Profile → New company → Upload documents reads the Trade License, MOA / Arti
 - With `OPENAI_API_KEY` (or `OPENROUTER_API_KEY`) set, documents are sent to the model for extraction. Text-based PDFs are sent as text; scanned PDFs and images are sent as files. Override the model with `OPENAI_EXTRACT_MODEL` / `OPENROUTER_EXTRACT_MODEL` (default `gpt-4.1-mini`).
 - Without a key, text-based PDFs are parsed with built-in rules. Scanned documents need the AI key, or the details are entered manually.
 
-Extracted values always open in the form for review before saving. Uploaded files are not stored; only the file names are recorded on the company.
+Extracted values always open in the form for review before saving. AI only fills what the document rules did not find; it never overrides them, and values it read are confirmed by the user.
+
+AI calls are limited per signed-in account per day (UAE date): 300 bill readings, 300 statement page pairs and 60 company document readings (`use_finscope_ai_call` in the migrations). Past the allowance, bills and company documents are read by the rules alone. Uploaded files are not stored; only the file names are recorded on the company.
 
 ## Company limit
 
-One company per subscription in the live product; each further company is a paid add-on, recorded for a profile as `extraCompanies` in `plan.json` in its data folder. Test mode allows up to 10 companies without payment: it is on in development (`npm run dev`) and can be turned on for a production build with `FINSCOPE_TEST_MODE=true` (or off in development with `FINSCOPE_TEST_MODE=false`). `FINSCOPE_COMPANY_LIMIT` overrides both. Adding beyond the limit shows the upgrade panel. Payment collection is not connected yet.
+One company per subscription in the live product; each further company is a paid add-on, recorded as `extraCompanies` in the `plan` namespace (record `subscription`) for a signed-in account, or in `plan.json` in a local workspace's data folder. Signed-in users can read their plan but not write it: billing writes it with the service role. Test mode allows up to 10 companies without payment: it is on in development (`npm run dev`) and can be turned on for a production build with `FINSCOPE_TEST_MODE=true` (or off in development with `FINSCOPE_TEST_MODE=false`). `FINSCOPE_COMPANY_LIMIT` overrides both. Adding beyond the limit shows the upgrade panel. Payment collection is not connected yet.
 
 ## Storage
 
@@ -36,7 +38,8 @@ Companies are saved in Supabase for signed-in users and in the local ignored `.d
 ## Invoices, bills and adjustments
 
 - Books (clients, suppliers, invoices, credit notes, bills, payments, schedules) are kept per company: in Supabase (`finscope_user_data`, namespace `books`, bill documents in `bill-documents`) for signed-in users, otherwise in `books/<companyId>.json` under the local workspace folder. The namespaces are added by migration `20261023060000_add_books_namespaces.sql`.
-- Activity log: every saved change (company, trial balance, statements uploaded, invoices, bills, payments, adjustments, VAT, corporate tax answers, audit requests) is added to namespace `activity` (or `activity.jsonl` in the local workspace folder) and shown on the Activity page. Migration `20261023180000_add_activity_log.sql` adds the namespace and a trigger that refuses edits to log rows and deletions by signed-in users. Until it is applied, changes still save but are not logged.
+- Activity log: every saved change (company, trial balance, statements uploaded, invoices, bills, payments, adjustments, VAT, corporate tax answers, audit requests) is described in namespace `activity` (or `activity.jsonl` in the local workspace folder) and shown on the Activity page. Signed-in entries are added only through `log_finscope_activity`, which stamps the server's time; they cannot be edited or deleted.
+- Database record: migration `20261024090000_lock_billing_audit_trail_ai_quota.sql` adds `finscope_change_log`, filled by a trigger on every insert, update and delete of `finscope_user_data`, however the change was made. It holds the record, the revisions and an MD5 of the saved content; users can read their own rows and cannot write them. It is shown under Activity → Database record. Until the migration is applied, changes still save but are not logged.
 - Their accounting is added to each year's trial balance when records are read (rows with ids starting `books-`); they are never saved with the typed figures.
 - Bill reading runs in the browser (PDF text or OCR) with document rules. With `OPENROUTER_API_KEY` or `OPENAI_API_KEY` set, an AI reading (text and, for photos, the image) fills what the rules miss. `OPENROUTER_EXTRACT_MODEL` / `OPENAI_EXTRACT_MODEL` choose the model.
 - E-invoicing quote requests are saved in Supabase (namespace `asp-requests`) or locally in `asp-requests.json`; set `FINSCOPE_ASP_WEBHOOK` (or the audit webhook) to forward them.
