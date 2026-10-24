@@ -27,13 +27,21 @@ const amountHeaders = ["amount", "balance", "net balance", "closing balance"]
 const debitHeaders = ["debit", "dr", "debit balance"]
 const creditHeaders = ["credit", "cr", "credit balance"]
 
+const SIDE = /\s*(dr|cr)\.?$/i
+
 export function parseAmount(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null
   let text = String(value ?? "").trim()
   if (!text) return null
   text = text.replace(/^(?:AED|USD|GBP|EUR|PKR|[$\u00a3\u20ac])\s*/i, "")
+  // "1,234.00 Dr" / "1,234.00 Cr" and "1,234.00-" as accounting software prints them.
+  const side = text.match(SIDE)
+  if (side) text = text.slice(0, side.index).trim()
+  const trailingMinus = !side && /\d\s*-$/.test(text)
+  if (trailingMinus) text = text.slice(0, -1).trim()
   const parenthesized = /^\(.*\)$/.test(text)
   if (parenthesized) text = text.slice(1, -1).trim()
+  if ((side || trailingMinus) && (parenthesized || /^[+-]/.test(text))) return null
   // Validate separators before stripping them so malformed values cannot become valid balances.
   if (!/^[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)$/.test(text))
     return null
@@ -43,8 +51,12 @@ export function parseAmount(value: unknown): number | null {
     Math.abs(amount) > Number.MAX_SAFE_INTEGER / 100
   )
     return null
-  return parenthesized ? -Math.abs(amount) : amount
+  return parenthesized || trailingMinus || side?.[1].toLowerCase() === "cr" ? -Math.abs(amount) || 0 : amount
 }
+
+/** A dash printed for nothing ("-", " - ", an en or em dash) in a debit, credit or amount column. */
+const isDash = (cell: unknown) => /^[-\u2013\u2014]$/.test(String(cell ?? "").trim())
+const hasSide = (cell: unknown) => SIDE.test(String(cell ?? "").trim())
 
 export function normalizeHeader(value: unknown) {
   return String(value ?? "")
@@ -92,20 +104,26 @@ export function rowsToLedgerEntries(rows: unknown[][]): ImportResult {
     }
     let amount: number | null
     if (columns.amount >= 0) {
-      amount = parseAmount(row[columns.amount])
+      amount = isDash(row[columns.amount]) ? 0 : parseAmount(row[columns.amount])
     } else {
       const debitCell = columns.debit >= 0 ? row[columns.debit] : null
       const creditCell = columns.credit >= 0 ? row[columns.credit] : null
       const empty = (cell: unknown) =>
         cell == null || String(cell).trim() === ""
-      const debit = empty(debitCell) ? 0 : parseAmount(debitCell)
-      const credit = empty(creditCell) ? 0 : parseAmount(creditCell)
+      // A figure marked Dr or Cr keeps its own side; otherwise the column gives it.
+      const side = (cell: unknown, sign: number) => {
+        if (empty(cell) || isDash(cell)) return 0
+        const value = parseAmount(cell)
+        return value === null ? null : hasSide(cell) ? value : sign * value
+      }
+      const debit = side(debitCell, 1)
+      const credit = side(creditCell, -1)
       amount =
         debit === null ||
         credit === null ||
         (empty(debitCell) && empty(creditCell))
           ? null
-          : debit - credit
+          : debit + credit
     }
     if (!ledgerName || amount === null) {
       result.skipped++
