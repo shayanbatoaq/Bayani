@@ -4,7 +4,7 @@ import type { FinancialInput, FinancialRecord } from "./financial-statements"
 
 /**
  * The activity log: every change saved in Bayani, when it was made and what it changed.
- * Entries are only ever added: the database stamps their time and refuses edits and deletions.
+ * Entries are only ever added (the database refuses edits and deletions of them).
  */
 export const ACTIVITY_AREAS = ["company", "figures", "statements", "invoices", "bills", "adjustments", "vat", "tax", "audit"] as const
 export type ActivityArea = (typeof ACTIVITY_AREAS)[number]
