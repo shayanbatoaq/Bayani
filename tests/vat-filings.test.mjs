@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { createJiti } from "jiti"
 
 const jiti = createJiti(import.meta.url)
-const { emptyCompanyDraft } = await jiti.import("../lib/company.ts")
+const { emptyCompanyDraft, localToday } = await jiti.import("../lib/company.ts")
 const { parseVat201, vatYears, analyse, totals, withTotals } = await jiti.import("../lib/vat-filings.ts")
 
 // Layout of an EmaraTax VAT 201 download (as read by the PDF reader); figures and names invented.
@@ -101,6 +101,20 @@ test("tax years follow the VAT tax year: May to April gives 2025-2026", () => {
   const late = vatYears({ ...company, vat: { ...company.vat, effectiveDate: "2025-06-15", cycleStartMonth: 5 } }, {}, {}, "2025-12-01")[0]
   assert.equal(late.periods[0].registered, true)
   assert.equal(late.periods[0].start, "2025-06-15")
+})
+
+test("today is the user's own date, not UTC's", () => {
+  const zone = process.env.TZ
+  try {
+    process.env.TZ = "Asia/Dubai"
+    // 1:30 am on 1 April in Dubai is still 31 March in UTC.
+    assert.equal(localToday(new Date("2025-03-31T21:30:00Z")), "2025-04-01")
+    process.env.TZ = "America/New_York"
+    assert.equal(localToday(new Date("2025-04-01T02:30:00Z")), "2025-03-31")
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
 })
 
 test("analysis: deregistration warnings follow the thresholds", () => {
